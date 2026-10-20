@@ -70,6 +70,8 @@ def _forms(values: list[float]) -> tuple[set[float], set[float]]:
         if v >= 60:
             seconds.add(v)
             plain.add(v / 60)
+        if v.is_integer() and 0 < v <= 90:
+            seconds.add(v * 60)   # a minute value written as m:ss ("0-10 min" -> "by 10:00")
     return plain, seconds
 
 

@@ -65,6 +65,7 @@ def main() -> int:
         fallback = None if has_rank else (client.player_rank(args.account_id).badge or None)
         summary = build_summary(meta, args.account_id, static, Benchmarks.load(), replay, fallback)
 
+    print(f"Asking {coach.backend}:{coach.model} for the report (usually 10-60 s)...", file=sys.stderr, flush=True)
     try:
         result = coach.generate(summary)
     except CoachRefusal as e:

@@ -157,6 +157,8 @@ def test_grounding_allows_rounding_percentages_and_times(summary):
     texts.append(f"a {summary.player.duration_s // 60}:{summary.player.duration_s % 60:02d} match")
     texts.append(f"{round(summary.player.duration_s / 60)} minutes")
     texts.append("your 3 priorities")
+    if any("0-10 min" == i.evidence.window for i in summary.issues):
+        texts.append("27 last hits by 10:00".replace("27", str(round(summary.issues[0].evidence.player_value))))
     for t in texts:
         assert find_ungrounded(_report_with(summary, t), summary) == [], t
 

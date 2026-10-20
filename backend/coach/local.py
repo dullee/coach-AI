@@ -30,13 +30,15 @@ log = logging.getLogger(__name__)
 class OpenAICompatCoach(CoachModel):
     backend = "openai-compat"
     max_tokens = 4000
+    timeout_s = 300.0
+    extra_body: dict = {}    # backend-specific request fields
 
     def __init__(self, model: str, base_url: str, api_key: str | None = None,
                  http: httpx.Client | None = None, usd_per_gpu_hour: float = 0.0):
         self.model = model
         self.base_url = base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self.http = http or httpx.Client(timeout=httpx.Timeout(300.0, connect=10.0))
+        self.http = http or httpx.Client(timeout=httpx.Timeout(self.timeout_s, connect=10.0))
         self.headers = headers
         self.usd_per_gpu_hour = usd_per_gpu_hour
         self.schema_mode = True   # switched off if the server rejects json_schema
@@ -57,9 +59,22 @@ class OpenAICompatCoach(CoachModel):
             "response_format": self._response_format(),
             "max_tokens": self.max_tokens,
             "temperature": 0.3,
+            **self.extra_body,
         }
+        timeouts = 0
         for attempt in range(self.max_retries + 1):
-            r = self.http.post(f"{self.base_url}/chat/completions", headers=self.headers, json=body)
+            log.info("asking %s:%s (attempt %d)", self.backend, self.model, attempt + 1)
+            try:
+                r = self.http.post(f"{self.base_url}/chat/completions", headers=self.headers, json=body)
+            except httpx.TimeoutException as e:
+                timeouts += 1
+                if timeouts >= 2:
+                    raise RuntimeError(f"{self.backend} did not answer within {self.timeout_s:.0f}s twice; "
+                                       f"the server may be overloaded, try again later") from e
+                log.warning("%s did not answer within %.0fs; retrying once", self.backend, self.timeout_s)
+                continue
+            except httpx.TransportError as e:
+                raise RuntimeError(f"could not reach {self.base_url} ({e})") from e
             if r.status_code not in (429, 500, 502, 503, 504) or attempt == self.max_retries:
                 return r
             try:
@@ -125,7 +140,11 @@ class GeminiCoach(OpenAICompatCoach):
     """Gemini API for free testing. Key: GEMINI_API_KEY. Cost logged as 0 (free tier)."""
 
     backend = "gemini"
-    max_tokens = 16000   # Gemini Flash models think; leave room so the answer isn't cut off
+    max_tokens = 8000    # Gemini Flash models think; leave room so the answer isn't cut off
+    timeout_s = 300.0    # the free tier can be slow: one real call took 277 s
+    # Thinking can't be turned off on Gemini 3 models; "low" keeps it short
+    # (values from Google's OpenAI-compatibility docs: minimal, low, medium, high).
+    extra_body = {"reasoning_effort": os.environ.get("COACH_GEMINI_REASONING", "low")}
 
     def __init__(self, model: str | None = None, api_key: str | None = None, http: httpx.Client | None = None):
         key = api_key or os.environ.get("GEMINI_API_KEY")
