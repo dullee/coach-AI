@@ -1,0 +1,33 @@
+[project]
+name = "deadlock-coach"
+version = "0.1.0"
+description = "Post-match AI coach for Deadlock"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Pinned: game patches can change the replay format, so upgrade on purpose
+    # and re-run the fixture tests (see docs/phase0-findings.md, section 4).
+    "boon-deadlock==0.18.0",
+    "polars>=1.0",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "sqlalchemy>=2.0",
+    "zstandard>=0.22",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "replay: needs the real fixture replays in data/demos/ (run scripts/fetch_fixtures.py)",
+    "network: calls the live community API",
+]
+addopts = "-m 'not network'"
