@@ -37,16 +37,31 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+def _local_server_up() -> bool:
+    """The local backend needs a running OpenAI-compatible server (e.g. Ollama); check quickly."""
+    import httpx
+
+    from backend.coach.local import LocalCoach
+
+    try:
+        return httpx.get(f"{LocalCoach().base_url}/models", timeout=1.5).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
 @app.get("/api/backends")
 def backends() -> dict:
     available = []
     for b in BACKENDS:
         try:
             make_coach(b)
-            available.append(b)
         except BackendUnavailable:
-            pass
-    default = os.environ.get("COACH_BACKEND") or ("claude" if "claude" in available else "gemini" if "gemini" in available else "local")
+            continue
+        if b == "local" and not _local_server_up():
+            continue
+        available.append(b)
+    wanted = os.environ.get("COACH_BACKEND")
+    default = wanted if wanted in available else (available[0] if available else "gemini")
     return {"available": available, "default": default}
 
 

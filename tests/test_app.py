@@ -15,7 +15,7 @@ client = TestClient(app)
 def test_index_and_backends():
     assert client.get("/").status_code == 200
     b = client.get("/api/backends").json()
-    assert "local" in b["available"] and b["default"] in ("claude", "gemini", "local")
+    assert set(b["available"]) <= {"claude", "gemini", "local"} and b["default"] in ("claude", "gemini", "local")
 
 
 def test_upload_rejects_non_replays():
