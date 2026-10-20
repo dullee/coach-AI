@@ -17,11 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend import config  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+from backend import config, db  # noqa: E402
 from backend.analysis.benchmarks import Benchmarks  # noqa: E402
-from backend.analysis.replay_data import ReplayData  # noqa: E402
+from backend.summarize.sources import match_data  # noqa: E402
 from backend.db import get_engine  # noqa: E402
-from backend.ingest import DeadlockApiClient, NotFound  # noqa: E402
+from backend.ingest import DeadlockApiClient, NotFound, RateLimited  # noqa: E402
 from backend.static_data import load  # noqa: E402
 from backend.summarize.builder import build_summary, estimate_tokens  # noqa: E402
 
@@ -43,20 +45,27 @@ def main() -> int:
              "Mark each issue: [x] reasonable, or leave [ ] and add a note.", ""]
     with DeadlockApiClient() as client:
         static = load(client=client)
-        history = [m for m in client.match_history(args.account_id) if m.game_mode == 1][: args.matches]
+        # The API's stored history plus every replay parsed for this account
+        # (the API may not have stored all of a player's matches).
+        history = {m.match_id for m in client.match_history(args.account_id) if m.game_mode == 1}
+        with engine.connect() as conn:
+            parsed = {r[0] for r in conn.execute(
+                select(db.matches.c.match_id).where(db.matches.c.requester_account_id == args.account_id))}
+        match_ids = sorted(history | parsed, reverse=True)[: args.matches]  # match IDs grow over time
         current_badge = client.player_rank(args.account_id).badge or None
-        for h in history:
+        for match_id in match_ids:
             try:
-                meta = client.own_match_metadata(h.match_id)
-            except NotFound:
-                lines += [f"## Match {h.match_id}: metadata not available", ""]
+                meta, replay = match_data(client, match_id, args.account_id, engine)
+            except (NotFound, RateLimited) as e:
+                lines += [f"## Match {match_id}: no data available ({type(e).__name__}); download its replay", ""]
                 continue
-            try:
-                replay = ReplayData.load(h.match_id, h.hero_id, engine)
-            except LookupError:
-                replay = None
+            if not any(p["account_id"] == args.account_id for p in meta["players"]):
+                lines += [f"## Match {match_id}: account not in this match", ""]
+                continue
             s = build_summary(meta, args.account_id, static, bench, replay, fallback_badge=current_badge)
-            when = datetime.fromtimestamp(h.start_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            start = meta.get("start_time")
+            when = (datetime.fromtimestamp(start, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                    if isinstance(start, (int, float)) else str(start or "unknown date"))
             k, d, a = s.key_stats.kda
             if s.player.bracket_basis == "estimated_from_stats":
                 lvl = s.player.estimated_level or ""
@@ -67,7 +76,7 @@ def main() -> int:
                 bracket = s.player.rank_bracket
             lines += [
                 f"## Match {s.match_id} ({when}): {s.player.hero}, {s.player.result}, {fmt_time(s.player.duration_s)}",
-                f"Level: {s.analysis_level} · bracket: {bracket} · KDA {k}/{d}/{a} · "
+                f"Level: {s.analysis_level} ({'replay' if meta.get('source') == 'replay' else 'API'} stats) · bracket: {bracket} · KDA {k}/{d}/{a} · "
                 f"{s.key_stats.souls_per_min:.0f} souls/min · ~{estimate_tokens(s)} tokens", "",
             ]
             if not s.issues:
@@ -87,7 +96,7 @@ def main() -> int:
     out = config.data_dir() / "review" / f"issues_{args.account_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
-    print(f"wrote {out} ({len(history)} matches)")
+    print(f"wrote {out} ({len(match_ids)} matches, {sum(m in parsed for m in match_ids)} with a replay)")
     return 0
 
 

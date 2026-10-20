@@ -55,6 +55,17 @@ match_players = Table(
     Column("rank_badge", SmallInteger),
     Column("is_requester", Boolean, nullable=False),
     Column("account_id", BigInteger),          # only set for the requesting player
+    Column("last_hits", Integer),              # final, from the replay's post-match stats
+)
+
+# Post-match stat snapshots from the replay (equal to the API's metadata stats).
+stat_snapshots = Table(
+    "stat_snapshots", metadata,
+    _match_fk(),
+    Column("slot", SmallInteger, nullable=False),
+    Column("time_s", Integer, nullable=False),
+    *(Column(c, Integer) for c in (
+        "net_worth", "kills", "deaths", "assists", "denies", "creep_kills", "player_damage", "boss_damage", "level")),
 )
 
 kills = Table(
@@ -122,7 +133,7 @@ mid_boss = Table(
 EVENT_TABLES = {
     "players": match_players, "kills": kills, "damage": damage, "purchases": purchases,
     "ability_uses": ability_uses, "ability_upgrades": ability_upgrades,
-    "objectives": objectives, "mid_boss": mid_boss,
+    "objectives": objectives, "mid_boss": mid_boss, "stat_snapshots": stat_snapshots,
 }
 
 

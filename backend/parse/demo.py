@@ -57,13 +57,20 @@ class ParsedMatch:
     ability_upgrades: pl.DataFrame
     objectives: pl.DataFrame
     mid_boss: pl.DataFrame
+    stat_snapshots: pl.DataFrame
     tables: tuple[str, ...] = field(
         default=(
             "players", "kills", "damage", "purchases", "ability_uses",
-            "ability_upgrades", "objectives", "mid_boss",
+            "ability_upgrades", "objectives", "mid_boss", "stat_snapshots",
         ),
         repr=False,
     )
+
+
+# Post-match stat snapshots recorded in the replay (Boon Demo.summary()). Verified
+# equal to the community API's match metadata stats at every snapshot, so a
+# replay alone can feed the benchmark comparisons.
+SNAPSHOT_COLUMNS = ("net_worth", "kills", "deaths", "assists", "denies", "creep_kills", "player_damage", "boss_damage", "level")
 
 
 def account_to_steam64(account_id: int) -> int:
@@ -102,6 +109,9 @@ def parse_demo(path: str | Path, requester_account_id: int | None = None) -> Par
 
     demo.load(*CORE_DATASETS)
 
+    summary = demo.summary()
+    final_last_hits = dict(zip(summary["last_hits"]["hero_id"].to_list(), summary["last_hits"]["last_hits"].to_list()))
+
     players = (
         raw_players.with_row_index("slot")
         .with_columns(
@@ -122,9 +132,17 @@ def parse_demo(path: str | Path, requester_account_id: int | None = None) -> Par
             "slot", "hero_id", "team", "start_lane",
             pl.col("rank").alias("rank_badge"),
             "is_requester", "account_id",
+            pl.col("hero_id").replace_strict(final_last_hits, default=None, return_dtype=pl.Int64).alias("last_hits"),
         )
     )
     slot_of = dict(zip(players["hero_id"].to_list(), players["slot"].to_list()))
+
+    stat_snapshots = summary["snapshots"].select(
+        pl.lit(match_id).alias("match_id"),
+        pl.col("hero_id").replace_strict(slot_of, default=None, return_dtype=pl.Int8).alias("slot"),
+        pl.col("snapshot_time_s").alias("time_s"),
+        *SNAPSHOT_COLUMNS,
+    ).drop_nulls("slot")
 
     def to_slot(col: str, alias: str) -> pl.Expr:
         # hero_id 0 means "not a hero" (troopers, towers, ...) -> null slot.
@@ -214,5 +232,5 @@ def parse_demo(path: str | Path, requester_account_id: int | None = None) -> Par
     return ParsedMatch(
         match=match, players=players, timeline=timeline, kills=kills, damage=damage,
         purchases=purchases, ability_uses=ability_uses, ability_upgrades=ability_upgrades,
-        objectives=objectives, mid_boss=mid_boss,
+        objectives=objectives, mid_boss=mid_boss, stat_snapshots=stat_snapshots,
     )

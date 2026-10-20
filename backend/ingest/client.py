@@ -53,6 +53,14 @@ class NotFound(ApiError):
     pass
 
 
+class RateLimited(ApiError):
+    """The API asked us to wait longer than max_wait_s (e.g. the hourly Steam quota)."""
+
+    def __init__(self, path: str, retry_after_s: float):
+        super().__init__(429, path, f"rate limited; next request allowed in {retry_after_s:.0f}s")
+        self.retry_after_s = retry_after_s
+
+
 class DeadlockApiClient:
     def __init__(
         self,
@@ -130,9 +138,12 @@ class DeadlockApiClient:
                     return resp.json()
                 if resp.status_code == 404:
                     raise NotFound(404, path, resp.text)
+                retry_after = self._retry_after(resp)
+                if retry_after is not None and retry_after > self.max_wait_s:
+                    raise RateLimited(path, retry_after)  # waiting would block for too long
                 if resp.status_code not in RETRY_STATUSES or attempt >= self.max_retries:
                     raise ApiError(resp.status_code, path, resp.text)
-                delay = self._retry_after(resp) or self._backoff(attempt)
+                delay = retry_after or self._backoff(attempt)
                 log.warning("HTTP %s on %s; retry in %.1fs", resp.status_code, path, delay)
             self._sleep(min(delay, self.max_wait_s))
             attempt += 1

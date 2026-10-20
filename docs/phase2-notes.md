@@ -62,3 +62,18 @@ Date: 2026-10-20. These are facts verified while building Phase 2, plus the desi
 - Replay-only detectors have no rank benchmark yet: their thresholds are fixed rules. The data lake has no replay data, so a benchmark would need many parsed replays per bracket.
 - Death and killer positions are available in the Free tier but not yet used by a detector. Map-aware rules, such as "died deep in enemy territory", would need map geometry from `/v1/assets/map`.
 - The token count is an estimate (JSON characters ÷ 3.5). Phase 3 will log real counts from the model's tokenizer.
+
+## Replay-only matches (added 2026-10-20)
+
+- The API's stored match history for the developer's account had only 5 matches. 3 of the matches whose replays were downloaded in-game were unknown to the API, and Steam lookups are limited to 3 per hour per IP.
+- **Fix:** the parser now also stores the replay's post-match stat snapshots (Boon `Demo.summary()`, 0.2 s). On fixture 120851860 these equal the API's metadata stats at every snapshot: net worth, kills, creep kills, hero damage, objective damage, and final last hits.
+- `analysis/replay_meta.py` turns a stored replay into API-shaped metadata, so the same summary code runs.
+- **Limits:**
+  - No gun accuracy (shots aren't in the replay).
+  - Final kills can be one short if a kill happens after the last snapshot (seen once).
+  - The match date is unknown.
+- **Source order** (`summarize/sources.py`):
+  1. The API's stored data.
+  2. The stored replay.
+  3. Asking the API to fetch the match from Steam.
+- The client now fails at once with `RateLimited` when the API asks for a wait longer than 2 minutes, instead of waiting and retrying.

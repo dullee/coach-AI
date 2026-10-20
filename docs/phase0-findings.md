@@ -45,7 +45,12 @@ All three replays: tick rate 64, all 12 players present, `game_mode = 1` (normal
 
 **Two routes:**
 
-1. **In-game (manual):** Profile → *View all match history* → pick the match → *Download Replay*. Source: [esports.gg guide](https://esports.gg/guides/deadlock/how-to-watch-and-download-your-match-replay-in-deadlock). **Unverified** by us in-game; one team member should try it and note where the file is saved.
+1. **In-game (manual):** Profile → *View all match history* → pick the match → *Download Replay*. Source: [esports.gg guide](https://esports.gg/guides/deadlock/how-to-watch-and-download-your-match-replay-in-deadlock). **Verified 2026-10-20 by the developer:**
+   - Files are saved to `<Steam library>\steamapps\common\Deadlock\game\citadel\replays\<match_id>.dem`.
+   - They are already uncompressed (they start with `PBDEMS2`), so no zstd step is needed.
+   - While downloading, a file is named `<match_id>.dem.partial`.
+   - A match from 18 days earlier still downloaded in-game, even though the API had no replay link for it.
+   - Some downloads can stall as `.partial` (3 did here).
 2. **Through the community API (automatic):** `GET /v1/matches/{match_id}/salts` returns a `demo_url` such as
    `http://replay389.valve.net/1422450/120851860_329453757.dem.bz2`. **Verified**: we downloaded 3 replays this way.
 
