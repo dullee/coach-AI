@@ -94,6 +94,8 @@ const store = { get(k){ try { return localStorage.getItem(k); } catch { return n
 async function api(path, opts) {
   const r = await fetch(path, opts);
   const body = await r.json().catch(() => ({}));
+  if (r.status === 404 && body.detail === "Not Found")   // route missing: page is newer than the running server
+    throw new Error("The app server is older than this page. Restart it (Ctrl+C, then python -m backend.app).");
   if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
   return body;
 }
