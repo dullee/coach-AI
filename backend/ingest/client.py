@@ -195,3 +195,7 @@ class DeadlockApiClient:
 
     def patches(self) -> list[dict]:
         return self.get_json("/v1/patches", max_age_s=TTL_ASSETS)
+
+    def big_patch_days(self) -> list[str]:
+        """ISO timestamps of major patches, newest first (e.g. "2026-09-29T20:25:11Z")."""
+        return self.get_json("/v1/patches/big-days", max_age_s=TTL_ASSETS)

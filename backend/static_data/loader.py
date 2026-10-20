@@ -31,6 +31,8 @@ class Hero:
     name: str
     class_name: str
     playable: bool
+    # The hero's four abilities, in order (class names of items with type "ability").
+    abilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class Item:
     slot_type: str | None
     tier: int | None
     cost: int | None
+    ability_type: str | None = None  # for abilities: "signature", "ultimate", ...
 
 
 class StaticData:
@@ -91,7 +94,9 @@ def _hero(h: dict) -> Hero:
     # Not filtering on in_development: heroes with that flag do appear in
     # ranked matches (verified: 2 such heroes in hero-stats and our replays).
     playable = bool(h.get("player_selectable")) and not h.get("disabled")
-    return Hero(id=h["id"], name=h["name"], class_name=h["class_name"], playable=playable)
+    slots = h.get("items") or {}
+    abilities = tuple(slots[k] for k in sorted(slots) if k.startswith("signature"))
+    return Hero(id=h["id"], name=h["name"], class_name=h["class_name"], playable=playable, abilities=abilities)
 
 
 def _item(i: dict) -> Item:
@@ -103,6 +108,7 @@ def _item(i: dict) -> Item:
         slot_type=i.get("item_slot_type"),
         tier=i.get("item_tier"),
         cost=i.get("cost"),
+        ability_type=i.get("ability_type"),
     )
 
 
