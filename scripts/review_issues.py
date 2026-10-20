@@ -47,7 +47,7 @@ def main() -> int:
         current_badge = client.player_rank(args.account_id).badge or None
         for h in history:
             try:
-                meta = client.match_metadata(h.match_id)
+                meta = client.own_match_metadata(h.match_id)
             except NotFound:
                 lines += [f"## Match {h.match_id}: metadata not available", ""]
                 continue
@@ -58,9 +58,16 @@ def main() -> int:
             s = build_summary(meta, args.account_id, static, bench, replay, fallback_badge=current_badge)
             when = datetime.fromtimestamp(h.start_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             k, d, a = s.key_stats.kda
+            if s.player.bracket_basis == "estimated_from_stats":
+                lvl = s.player.estimated_level or ""
+                said = (f"this match's stats are below typical {lvl.removeprefix('below ')} players" if lvl.startswith("below ")
+                        else f"this match's stats match {lvl} players")
+                bracket = f"unranked; {said}, so compared with {s.player.rank_bracket} (just above)"
+            else:
+                bracket = s.player.rank_bracket
             lines += [
                 f"## Match {s.match_id} ({when}): {s.player.hero}, {s.player.result}, {fmt_time(s.player.duration_s)}",
-                f"Level: {s.analysis_level} · bracket: {s.player.rank_bracket} · KDA {k}/{d}/{a} · "
+                f"Level: {s.analysis_level} · bracket: {bracket} · KDA {k}/{d}/{a} · "
                 f"{s.key_stats.souls_per_min:.0f} souls/min · ~{estimate_tokens(s)} tokens", "",
             ]
             if not s.issues:

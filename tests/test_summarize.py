@@ -51,14 +51,16 @@ def test_medium_summary_uses_the_replay(static, sample_benchmarks, tmp_path):
         s = build_summary(meta, p["account_id"], static, sample_benchmarks, replay=replay)
         assert s.analysis_level == "medium"
         assert s.key_stats.ability_casts and all(v > 0 for v in s.key_stats.ability_casts.values())
-        assert "unranked" not in s.player.rank_bracket
+        assert s.player.bracket_basis == "own_rank"
         assert estimate_tokens(s) < TOKEN_TARGET
 
 
-def test_unranked_without_fallback_says_so(static, sample_benchmarks):
-    meta = fixture_metadata(MATCH_IDS[0])
+def test_unranked_player_is_compared_with_estimated_bracket(static, sample_benchmarks):
+    meta = fixture_metadata(MATCH_IDS[0])  # unranked match, no rank anywhere
     s = build_summary(meta, meta["players"][0]["account_id"], static, sample_benchmarks)
-    assert "unranked" in s.player.rank_bracket
+    assert s.player.bracket_basis == "estimated_from_stats" and s.player.estimated_level
+    ranked = build_summary(meta, meta["players"][0]["account_id"], static, sample_benchmarks, fallback_badge=55)
+    assert ranked.player.bracket_basis == "own_rank" and ranked.player.estimated_level is None
 
 
 def test_unknown_account_is_rejected(static, sample_benchmarks):

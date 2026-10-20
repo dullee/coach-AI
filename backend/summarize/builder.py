@@ -6,7 +6,8 @@ import json
 import math
 
 from backend.analysis.benchmarks import Benchmarks
-from backend.analysis.brackets import bracket_of
+from backend.analysis.brackets import bracket_of, brackets
+from backend.analysis.level import estimate_level
 from backend.analysis.frame import from_metadata
 from backend.analysis.issues import Context, run_all
 from backend.analysis.issues.base import STRENGTH_ABOVE, good_percentile, metric_evidence
@@ -74,6 +75,15 @@ def build_summary(
 
     badge = row["rank_badge"][0] or (replay.rank_badge if replay else None) or fallback_badge
     bracket = bracket_of(badge, static)
+    basis, estimated_level = "own_rank", None
+    if bracket is None:
+        # Unranked: compare with ranked players who have just better stats.
+        est = estimate_level(values, hero_id, static, benchmarks)
+        if est is None:
+            basis = "all_ranks"
+        else:
+            bracket, basis = est.compare_with, "estimated_from_stats"
+            estimated_level = est.level.label if est.level else f"below {brackets(static)[0].label}"
     ctx = Context(static=static, benchmarks=benchmarks, hero_id=hero_id, bracket=bracket,
                   player=row, metric_values=values, replay=replay)
 
@@ -85,7 +95,9 @@ def build_summary(
         analysis_level="medium" if replay else "free",
         player=PlayerInfo(
             hero=static.hero_name(hero_id),
-            rank_bracket=bracket.label if bracket else "unranked (compared with all ranks)",
+            rank_bracket=bracket.label if bracket else "all ranks",
+            bracket_basis=basis,
+            estimated_level=estimated_level,
             result="win" if row["won"][0] else "loss",
             duration_s=int(meta["duration_s"]),
         ),

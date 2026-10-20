@@ -79,6 +79,16 @@ class Benchmarks:
                 return Distribution(metric, key[1], key[2], r["n"], {q: r[c] for q, c in zip(QUANTILES, QCOLS)})
         return None
 
+    def bracket_distribution(self, metric: str, hero_id: int, bracket: str) -> Distribution | None:
+        """Like distribution(), but never leaves the bracket: hero+bracket, then all heroes in it."""
+        d = self.distribution(metric, hero_id, bracket)
+        if d is not None and d.bracket == bracket:
+            return d
+        r = self._metrics.get((metric, 0, bracket))
+        if r and r["n"] >= MIN_MATCHES:
+            return Distribution(metric, 0, bracket, r["n"], {q: r[c] for q, c in zip(QUANTILES, QCOLS)})
+        return None
+
     def item_timing(self, hero_id: int, bracket: str | None, item_id: int) -> ItemTiming | None:
         for b in (bracket, ALL):
             r = self._items.get((hero_id, b, item_id))

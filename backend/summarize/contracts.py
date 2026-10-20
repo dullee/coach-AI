@@ -46,7 +46,10 @@ class Strength(_Contract):
 
 class PlayerInfo(_Contract):
     hero: str
-    rank_bracket: str
+    rank_bracket: str   # the bracket the player is compared with
+    bracket_basis: Literal["own_rank", "estimated_from_stats", "all_ranks"] = "own_rank"
+    # Unranked players only: the bracket this match's stats match ("below <lowest>" if under it).
+    estimated_level: str | None = None
     result: Literal["win", "loss"]
     duration_s: int
 

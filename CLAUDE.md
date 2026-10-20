@@ -111,7 +111,9 @@ MatchSummary — what the coaching model receives (target under 2,000 tokens):
   "match_id": 0,
   "patch": "2026-09-29 (client 6796)",
   "analysis_level": "free",   // free = API data only; medium = API data + replay
-  "player": {"hero": "...", "rank_bracket": "...", "result": "loss", "duration_s": 2100},
+  "player": {"hero": "...", "rank_bracket": "<bracket compared with>", "bracket_basis": "own_rank",   // own_rank | estimated_from_stats | all_ranks
+             "estimated_level": null,   // unranked only: bracket this match's stats match, e.g. "below Initiate-Seeker"
+             "result": "loss", "duration_s": 2100},
   "key_stats": {"kda": [4, 7, 9], "souls_per_min": 498, "damage_per_min": 0, "last_hits": 120,
                 "kill_participation": 0.5, "ability_casts": {"<ability name>": 12}},   // ability_casts: medium only
   "issues": ["<up to 8 Issue objects, sorted by severity>"],

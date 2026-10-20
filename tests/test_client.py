@@ -153,6 +153,20 @@ def test_match_endpoints_never_ask_steam(tmp_path):
     assert all(u.params.get("disable_steam") == "true" for u in seen)
 
 
+def test_own_match_falls_back_to_steam_only_when_missing(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(dict(req.url.params))
+        if req.url.params.get("disable_steam") == "true":
+            return httpx.Response(404, json={"status": 404, "error": "Match metadata not found."})
+        return httpx.Response(200, json={"match_info": {"match_id": 7, "players": []}})
+
+    client, _ = make_client(tmp_path, handler)
+    assert client.own_match_metadata(7)["match_id"] == 7
+    assert seen == [{"disable_steam": "true"}, {}]
+
+
 def test_throttle_spaces_analytics_calls(tmp_path):
     client, ft = make_client(tmp_path, lambda req: httpx.Response(200, json=[]))
     client.get_json("/v1/analytics/hero-stats", {"a": 1}, max_age_s=0)

@@ -15,7 +15,7 @@ import sys
 from backend.analysis.benchmarks import Benchmarks
 from backend.analysis.replay_data import ReplayData
 from backend.db import get_engine
-from backend.ingest import DeadlockApiClient
+from backend.ingest import DeadlockApiClient, NotFound
 from backend.parse import parse_demo, save_match
 from backend.static_data import load
 from backend.summarize.builder import TOKEN_TARGET, build_summary, estimate_tokens, summary_json
@@ -33,7 +33,11 @@ def main() -> int:
 
     with DeadlockApiClient() as client:
         static = load(client=client)
-        meta = client.match_metadata(args.match_id)
+        try:
+            meta = client.own_match_metadata(args.match_id)
+        except NotFound:
+            print(f"error: the community API has no data for match {args.match_id} yet; try again later", file=sys.stderr)
+            return 1
         player = next((p for p in meta["players"] if p["account_id"] == args.account_id), None)
         if player is None:
             print(f"error: account {args.account_id} did not play in match {args.match_id}", file=sys.stderr)

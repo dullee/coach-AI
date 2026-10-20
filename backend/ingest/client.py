@@ -172,9 +172,20 @@ class DeadlockApiClient:
         raw = self.get_json("/v1/assets/ranks", {"client_version": client_version}, max_age_s=TTL_ASSETS)
         return [Rank.model_validate(r) for r in raw]
 
-    def match_metadata(self, match_id: int) -> dict:
-        raw = self.get_json(f"/v1/matches/{match_id}/metadata", {"disable_steam": "true"}, max_age_s=TTL_FOREVER)
+    def match_metadata(self, match_id: int, *, allow_steam: bool = False) -> dict:
+        """allow_steam=True lets the API fetch a match it doesn't have yet from Steam.
+        That quota is tiny (3 req/hour per IP), so only use it for a user's own
+        match after a normal lookup returned NotFound."""
+        params = None if allow_steam else {"disable_steam": "true"}
+        raw = self.get_json(f"/v1/matches/{match_id}/metadata", params, max_age_s=TTL_FOREVER)
         return raw["match_info"] if "match_info" in raw else raw
+
+    def own_match_metadata(self, match_id: int) -> dict:
+        """Metadata for a match the user asked about: cache/database first, Steam as a last resort."""
+        try:
+            return self.match_metadata(match_id)
+        except NotFound:
+            return self.match_metadata(match_id, allow_steam=True)
 
     def match_salts(self, match_id: int) -> MatchSalts:
         # Not cached forever: the API may learn a replay salt later.

@@ -49,6 +49,12 @@ Date: 2026-10-20. These are facts verified while building Phase 2, plus the desi
   - 1–8 issues per player (median 6); the largest summary is about 1,060 tokens.
   - Two of the matches are unranked, so for this check those players were placed in an assumed bracket. That inflates the rates. The real review uses each player's own rank.
 - **Strengths:** metrics where the player is in the top 30%; the top 3 are kept.
+- **Unranked players** (decided by the developer, 2026-10-20) are compared with "ranked players who have just better stats":
+  - For each bracket, average the match's percentiles across all metrics.
+  - The highest bracket where that average is at least 50% is the player's estimated level.
+  - The comparison bracket is the one just above it (the lowest bracket if the player is below all of them; the top bracket stays the top).
+  - The summary records `bracket_basis: "estimated_from_stats"` and `estimated_level`, so the report can say which rank was used.
+- **New matches the API hasn't stored:** for a match the user asks about, the API is allowed to fetch it from Steam as a last resort (3 requests/hour per IP). Bulk and benchmark code never does this.
 - **Kill participation** = (kills + assists) / enemy deaths. Using team kills as the denominator gave values above 100% on real data, because assists also count when enemies die to troopers or towers.
 
 ## Known limits
