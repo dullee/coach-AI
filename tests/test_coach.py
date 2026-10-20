@@ -211,6 +211,80 @@ def test_local_backend_speaks_openai_chat_completions(summary):
     assert result.calls[0].cost_usd >= 0
 
 
+def _gemini(summary, handler):
+    from backend.coach.local import GEMINI_DEFAULT_MODEL, GEMINI_URL, GeminiCoach
+
+    coach = GeminiCoach(api_key="test-key", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    coach._sleep = lambda s: None
+    return coach, GEMINI_URL, GEMINI_DEFAULT_MODEL
+
+
+def _ok(summary, body):
+    return httpx.Response(200, json={
+        "model": body["model"],
+        "choices": [{"message": {"content": json.dumps(good_report(summary))}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1500, "completion_tokens": 900},
+    })
+
+
+def test_gemini_backend_sends_key_and_schema(summary):
+    seen = []
+
+    def server(req):
+        seen.append(req)
+        return _ok(summary, json.loads(req.content))
+
+    coach, url, model = _gemini(summary, server)
+    result = coach.generate(summary)
+    assert result.valid and result.cost_usd == 0.0 and coach.backend == "gemini"
+    req = seen[0]
+    assert str(req.url) == f"{url}/chat/completions"
+    assert req.headers["authorization"] == "Bearer test-key"
+    body = json.loads(req.content)
+    assert body["model"] == model and body["response_format"]["type"] == "json_schema"
+
+
+def test_gemini_falls_back_to_json_mode_if_schema_rejected(summary):
+    formats = []
+
+    def server(req):
+        body = json.loads(req.content)
+        formats.append(body["response_format"]["type"])
+        if body["response_format"]["type"] == "json_schema":
+            return httpx.Response(400, json={"error": {"message": "Invalid JSON schema"}})
+        return _ok(summary, body)
+
+    coach, _, _ = _gemini(summary, server)
+    assert coach.generate(summary).valid
+    assert formats == ["json_schema", "json_object"]
+
+
+def test_gemini_retries_rate_limits(summary):
+    replies = iter([httpx.Response(429, headers={"retry-after": "3"}), None])
+
+    def server(req):
+        r = next(replies)
+        return r if r is not None else _ok(summary, json.loads(req.content))
+
+    coach, _, _ = _gemini(summary, server)
+    waits = []
+    coach._sleep = waits.append
+    assert coach.generate(summary).valid and waits == [3.0]
+
+
+def test_backend_factory_reports_missing_keys(monkeypatch):
+    from backend.coach.factory import BackendUnavailable, make_coach
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(BackendUnavailable, match="GEMINI_API_KEY"):
+        make_coach("gemini")
+    with pytest.raises(BackendUnavailable, match="unknown backend"):
+        make_coach("nope")
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    assert make_coach("gemini").backend == "gemini"
+    assert make_coach("local").backend == "local"
+
+
 def test_pricing():
     assert cost_usd("claude-haiku-5-5", 1_000_000, 0) == pytest.approx(0.10)
     assert cost_usd("claude-opus-5-5", 0, 1_000_000) == pytest.approx(20.0)

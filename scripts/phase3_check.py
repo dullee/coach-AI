@@ -1,13 +1,13 @@
 """Phase 3 "Done when" run: coaching reports for 20 real player-matches.
 
-    python scripts/phase3_check.py --account-id <your id> [--n 20] [--model claude-haiku-5-5]
+    python scripts/phase3_check.py --account-id <your id> [--n 20] [--backend claude|gemini|local] [--model M]
 
 Matches: your own matches first (API history + parsed replays), then players
 from the anonymized fixture matches in tests/data/api/ to reach N. Every
 report is validated (schema, issue ids, invented numbers), all calls are
 logged with tokens and cost, and a sheet for spot-checking is written to
 data/review/phase3_reports.md. This calls the Claude API and costs money
-(with Claude Haiku 5.5 roughly $0.001-0.003 per report).
+(with Claude Haiku 5.5 roughly $0.001-0.003 per report; free on the Gemini free tier).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from sqlalchemy import select  # noqa: E402
 from backend import config, db  # noqa: E402
 from backend.analysis.benchmarks import Benchmarks  # noqa: E402
 from backend.coach.base import CoachRefusal  # noqa: E402
-from backend.coach.claude import NO_CREDENTIALS, ClaudeCoach, has_credentials  # noqa: E402
+from backend.coach.factory import BACKENDS, BackendUnavailable, default_backend, make_coach  # noqa: E402
 from backend.coach.render import render  # noqa: E402
 from backend.coach.store import save_result  # noqa: E402
 from backend.db import get_engine  # noqa: E402
@@ -38,14 +38,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--account-id", type=int, required=True)
     ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--backend", choices=BACKENDS, default=default_backend())
     ap.add_argument("--model")
     args = ap.parse_args()
 
-    if not has_credentials():
-        print(f"error: {NO_CREDENTIALS}")
+    try:
+        coach = make_coach(args.backend, args.model)
+    except BackendUnavailable as e:
+        print(f"error: {e}")
         return 1
     engine, bench = get_engine(), Benchmarks.load()
-    coach = ClaudeCoach(model=args.model)
     jobs = []  # (label, summary, account_id)
     with DeadlockApiClient() as client:
         static = load(client=client)
@@ -70,7 +72,7 @@ def main() -> int:
                          build_summary(meta, p["account_id"], static, bench), None))
     jobs = jobs[: args.n]
 
-    lines = [f"# Phase 3 check: {len(jobs)} reports, model {coach.model}", "",
+    lines = [f"# Phase 3 check: {len(jobs)} reports, {coach.backend}:{coach.model}", "",
              "Spot-check: does every claim match the summary numbers? Is the advice useful?", ""]
     totals = {"valid": 0, "first_try": 0, "cost": 0.0, "calls": 0, "latency": 0.0, "refused": 0}
     for n, (label, summary, account) in enumerate(jobs, 1):
@@ -81,6 +83,11 @@ def main() -> int:
             save_result(engine, coach, summary, account, None, e.calls)
             totals["refused"] += 1
             lines += [f"## {n}. {label}: REFUSED", ""]
+            continue
+        except RuntimeError as e:  # HTTP error from Gemini / local server after retries
+            print(f"   failed: {e}")
+            totals["refused"] += 1
+            lines += [f"## {n}. {label}: FAILED ({e})", ""]
             continue
         save_result(engine, coach, summary, account, result)
         totals["valid"] += result.valid
@@ -96,7 +103,7 @@ def main() -> int:
 
     k = len(jobs)
     head = (f"**Result:** {totals['valid']}/{k} valid ({totals['first_try']} on the first try), "
-            f"{totals['refused']} refused, {totals['calls']} calls, total ${totals['cost']:.4f} "
+            f"{totals['refused']} refused or failed, {totals['calls']} calls, total ${totals['cost']:.4f} "
             f"(${totals['cost'] / max(k, 1):.5f} per report), {totals['latency'] / max(k, 1):.1f}s per report.")
     lines.insert(2, head)
     out = config.data_dir() / "review" / "phase3_reports.md"

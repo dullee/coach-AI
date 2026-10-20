@@ -1,4 +1,7 @@
-"""python -m backend.coach <match_id> --account-id A [--demo FILE] [--model M | --local] [--json]
+"""python -m backend.coach <match_id> --account-id A [--demo FILE] [--backend claude|gemini|local] [--model M] [--json]
+
+Backends: claude (default; ANTHROPIC_API_KEY), gemini (free testing; GEMINI_API_KEY),
+local (OpenAI-compatible server at COACH_LOCAL_URL). COACH_BACKEND sets the default.
 
 Builds the MatchSummary (Free tier, or Medium if a replay is stored or given),
 asks the coaching model for a CoachingReport, validates it (retry once),
@@ -16,8 +19,7 @@ import anthropic
 
 from backend.analysis.benchmarks import Benchmarks
 from backend.coach.base import CoachRefusal
-from backend.coach.claude import NO_CREDENTIALS, ClaudeCoach, has_credentials
-from backend.coach.local import LocalCoach
+from backend.coach.factory import BACKENDS, BackendUnavailable, default_backend, make_coach
 from backend.coach.render import render
 from backend.coach.store import save_result
 from backend.db import get_engine
@@ -33,15 +35,16 @@ def main() -> int:
     ap.add_argument("match_id", type=int)
     ap.add_argument("--account-id", type=int, required=True)
     ap.add_argument("--demo", help="replay file for this match (Medium tier)")
-    which = ap.add_mutually_exclusive_group()
-    which.add_argument("--model", help="Claude model (default: COACH_CLAUDE_MODEL or claude-haiku-5-5)")
-    which.add_argument("--local", action="store_true", help="use the local OpenAI-compatible server (COACH_LOCAL_URL)")
+    ap.add_argument("--backend", choices=BACKENDS, default=default_backend())
+    ap.add_argument("--model", help="model name for the backend (defaults: claude-haiku-5-5 / gemini-3.8-flash / COACH_LOCAL_MODEL)")
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
-    if not args.local and not has_credentials():
-        print(f"error: {NO_CREDENTIALS}", file=sys.stderr)
+    try:
+        coach = make_coach(args.backend, args.model)
+    except BackendUnavailable as e:
+        print(f"error: {e}", file=sys.stderr)
         return 1
     engine = get_engine()
     if args.demo:
@@ -62,12 +65,14 @@ def main() -> int:
         fallback = None if has_rank else (client.player_rank(args.account_id).badge or None)
         summary = build_summary(meta, args.account_id, static, Benchmarks.load(), replay, fallback)
 
-    coach = LocalCoach() if args.local else ClaudeCoach(model=args.model)
     try:
         result = coach.generate(summary)
     except CoachRefusal as e:
         save_result(engine, coach, summary, args.account_id, None, e.calls)
         print("error: the model declined this request; try --model claude-opus-5-5 (has server-side fallback)", file=sys.stderr)
+        return 1
+    except RuntimeError as e:  # HTTP errors from the OpenAI-compatible backends (Gemini, local)
+        print(f"error: {e}", file=sys.stderr)
         return 1
     except anthropic.AuthenticationError:
         print("error: no valid Anthropic API key; set ANTHROPIC_API_KEY", file=sys.stderr)
