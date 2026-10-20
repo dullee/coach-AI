@@ -25,6 +25,6 @@ def _accuracy(df, static):
 
 METRICS = [
     Metric("damage_per_min", "Hero damage per minute", "damage/min", "full match", "combat", True, _dpm),
-    Metric("kill_participation", "Kill participation", "share of team kills", "full match", "teamplay", True, _kill_participation),
+    Metric("kill_participation", "Kill participation", "share of enemy deaths", "full match", "teamplay", True, _kill_participation),
     Metric("accuracy", "Gun accuracy", "share of shots hit", "full match", "mechanics", True, _accuracy),
 ]
