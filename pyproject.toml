@@ -14,6 +14,9 @@ dependencies = [
     "zstandard>=0.22",
     "duckdb>=1.1",   # benchmark queries against the community data lake
     "anthropic>=1.15", # coaching model (Claude API)
+    "fastapi>=0.115",  # prototype web app
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",  # replay uploads
 ]
 
 [project.optional-dependencies]

@@ -161,6 +161,7 @@ Phase 3 — Coaching LLM layer (cloud baseline)
 [x] CLI: python -m backend.coach <match_id> --account-id A prints the report (account needed: summaries are per player).
 Done when: 20 real matches produce valid reports with no invented numbers (spot-checked), and cost per call is logged.
 Status (2026-10-20): built and unit-tested with a fake API client (121 tests pass). Baseline model claude-haiku-5-5, premium claude-opus-5-5 (server-side refusal fallback on). The 20-match run (scripts/phase3_check.py) is waiting for an Anthropic API key.
+Prototype shortcut (developer request, 2026-10-20): to test feasibility early, a minimal end-to-end web prototype was built ahead of Phases 4-5: backend/app/ (FastAPI, one HTML page, in-process background jobs, localhost only) on top of the Phase 1-3 pipeline. It has no accounts, tiers, ratings or history, and does not replace Phase 5 (Next.js frontend, worker, accounts). Phase 3's Done-when (20 validated reports, Claude cost measured) is still open.
 Phases 4–6: fine-tuning, app and premium video
 Phase 4 is the project's required fine-tuning component. Phases 4 and 5 can run in parallel once Phase 3 is done.
 Phase 4 — Fine-tune the coaching model

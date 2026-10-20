@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deadlock Coach (prototype)</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --text:#e7e9ee; --muted:#9aa3b2; --accent:#e0b04a;
+          --good:#5cc98a; --bad:#e2675f; --chip:#232834; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 12px 0 0; color:var(--accent); letter-spacing:.3px; }
+  input, select, button { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 10px; }
+  button { cursor:pointer; background:#262b36; }
+  button.primary { background:var(--accent); color:#1b1606; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  main { display:grid; grid-template-columns: minmax(300px, 420px) 1fr; gap:20px; padding:20px 24px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .muted { color:var(--muted); }
+  .match { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 8px; border-bottom:1px solid var(--line); }
+  .match:last-child { border-bottom:0; }
+  .match .meta { font-size:13px; color:var(--muted); }
+  .win { color:var(--good); } .loss { color:var(--bad); }
+  .badge { font-size:11px; padding:2px 7px; border-radius:99px; background:var(--chip); color:var(--muted); margin-left:6px; }
+  .badge.replay { color:var(--accent); }
+  .progress div { color:var(--muted); font-size:14px; }
+  .progress div:last-child { color:var(--text); }
+  .prio { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:12px 0; }
+  .prio h3 { margin:0 0 6px; font-size:16px; }
+  .prio p { margin:6px 0; }
+  .label { color:var(--accent); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.4px; margin-right:6px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chip { background:var(--chip); border-radius:6px; padding:3px 8px; font-size:12px; color:var(--muted); }
+  .headline { font-size:17px; margin:8px 0 4px; }
+  .focus { border-left:3px solid var(--accent); padding:8px 12px; background:#1d2029; border-radius:6px; }
+  .footer { font-size:12px; color:var(--muted); margin-top:14px; }
+  .warn { color:var(--bad); }
+  details summary { cursor:pointer; color:var(--muted); font-size:13px; margin-top:10px; }
+  pre { white-space:pre-wrap; font-size:12px; color:var(--muted); max-height:400px; overflow:auto; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Deadlock Coach</h1>
+  <label class="row">Account ID <input id="acc" size="12" placeholder="Steam friend code"></label>
+  <label class="row">Model <select id="backend"></select></label>
+  <button id="load" class="primary">Load my matches</button>
+  <span class="muted" id="status"></span>
+</header>
+<main>
+  <section class="panel">
+    <h2 style="margin-top:0;font-size:16px">Your matches</h2>
+    <div id="matches" class="muted">Enter your account ID and load your matches.</div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <form id="uploadForm" class="row">
+      <input type="file" id="file" accept=".dem">
+      <button type="submit">Upload replay</button>
+    </form>
+    <div class="muted" style="font-size:12px;margin-top:6px">
+      Replays you download in Deadlock (match history &rarr; Download Replay) are found automatically.
+    </div>
+  </section>
+  <section class="panel" id="out"><div class="muted">Pick a match to see its coaching report.</div></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+                set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+}
+
+async function init() {
+  $("acc").value = store.get("account_id") || "";
+  const b = await api("/api/backends");
+  const names = { claude: "Claude (Anthropic)", gemini: "Gemini (free tier)", local: "Local model" };
+  $("backend").innerHTML = ["claude", "gemini", "local"].map(x =>
+    `<option value="${x}" ${b.available.includes(x) ? "" : "disabled"}>${names[x]}${b.available.includes(x) ? "" : " (no key)"}</option>`).join("");
+  $("backend").value = store.get("backend") && b.available.includes(store.get("backend")) ? store.get("backend") : b.default;
+  if ($("acc").value) loadMatches();
+}
+
+async function loadMatches() {
+  const acc = $("acc").value.trim();
+  if (!/^\d+$/.test(acc)) { $("status").textContent = "Account ID must be a number"; return; }
+  store.set("account_id", acc);
+  $("status").textContent = "Loading matches...";
+  try {
+    const { matches } = await api(`/api/matches?account_id=${acc}`);
+    $("status").textContent = "";
+    if (!matches.length) { $("matches").innerHTML = "No matches found. Download a replay in Deadlock or upload one."; return; }
+    $("matches").innerHTML = matches.map(m => `
+      <div class="match">
+        <div>
+          <div><b>${esc(m.hero || "Unknown hero")}</b>
+            ${m.result ? `<span class="${m.result}">${m.result}</span>` : ""}
+            ${m.replay ? `<span class="badge replay">replay ${m.replay}</span>` : `<span class="badge">stats only</span>`}</div>
+          <div class="meta">${esc(m.date || "date unknown")} · ${m.kda ? "KDA " + esc(m.kda) + " · " : ""}${m.duration ? esc(m.duration) + " · " : ""}#${m.match_id}</div>
+        </div>
+        <div class="row">
+          ${m.has_report ? `<button onclick="showLatest(${m.match_id})">View</button>` : ""}
+          <button class="primary" onclick="runReport(${m.match_id})">${m.has_report ? "Redo" : "Get report"}</button>
+        </div>
+      </div>`).join("");
+  } catch (e) { $("status").textContent = e.message; }
+}
+
+let polling = null;
+async function runReport(matchId) {
+  const acc = Number($("acc").value.trim());
+  store.set("backend", $("backend").value);
+  $("out").innerHTML = `<h2 style="margin-top:0;font-size:16px">Match #${matchId}</h2><div class="progress" id="prog"><div>Starting...</div></div>`;
+  try {
+    const { job_id } = await api("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: acc, match_id: matchId, backend: $("backend").value }) });
+    clearInterval(polling);
+    const started = Date.now();
+    polling = setInterval(async () => {
+      const j = await api(`/api/jobs/${job_id}`);
+      const secs = Math.round((Date.now() - started) / 1000);
+      $("prog") && ($("prog").innerHTML = j.progress.map(p => `<div>${esc(p)}</div>`).join("") + `<div class="muted">${secs}s</div>`);
+      if (j.status === "done") { clearInterval(polling); render(j.result); loadMatches(); }
+      if (j.status === "error") { clearInterval(polling); $("out").innerHTML += `<p class="warn">${esc(j.error)}</p>`; }
+    }, 1500);
+  } catch (e) { $("out").innerHTML += `<p class="warn">${esc(e.message)}</p>`; }
+}
+
+async function showLatest(matchId) {
+  try { render(await api(`/api/reports/latest?account_id=${$("acc").value.trim()}&match_id=${matchId}`)); }
+  catch (e) { $("out").innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+}
+
+const fmt = (v, unit) => {
+  if (v == null) return "";
+  if (unit && unit.startsWith("share")) return Math.round(v * 100) + "%";
+  if (unit === "seconds") return `${Math.floor(v / 60)}:${String(Math.round(v % 60)).padStart(2, "0")}`;
+  return Math.abs(v) >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+};
+
+function evidenceChip(issue) {
+  const e = issue.evidence;
+  const vs = e.bracket_p50 != null ? ` vs ${fmt(e.bracket_p50, e.unit)} median` : "";
+  return `<span class="chip">${esc(fmt(e.player_value, e.unit))} ${esc(e.unit.startsWith("share") || e.unit === "seconds" ? "" : e.unit)}${vs} · ${esc(e.window)}</span>`;
+}
+
+function render(res) {
+  const s = res.summary, r = res.report, p = s.player;
+  const issues = Object.fromEntries((s.issues || []).map(i => [i.id, i]));
+  const [k, d, a] = s.key_stats.kda;
+  const dur = `${Math.floor(p.duration_s / 60)}:${String(p.duration_s % 60).padStart(2, "0")}`;
+  let html = `<h2 style="margin-top:0;font-size:16px">${esc(p.hero)} · <span class="${p.result}">${p.result}</span> · ${dur} · KDA ${k}/${d}/${a}</h2>
+    <div class="muted" style="font-size:13px">Compared with ${esc(p.rank_bracket)} players${p.bracket_basis === "estimated_from_stats" ? ` (you're unranked; this match's stats match ${esc(p.estimated_level)})` : ""} · ${s.analysis_level === "medium" ? "replay + stats" : "stats only (no replay)"}</div>`;
+  if (!r) { $("out").innerHTML = html + `<p class="warn">No usable report: ${esc((res.problems || []).join("; "))}</p>`; return; }
+  html += `<p class="headline">${esc(r.headline)}</p>`;
+  r.priorities.forEach((pr, n) => {
+    const chips = pr.issue_ids.map(id => issues[id]).filter(Boolean).map(evidenceChip).join("");
+    html += `<div class="prio"><h3>${n + 1}. ${esc(pr.title)}</h3>
+      <p><span class="label">Why</span>${esc(pr.why)}</p>
+      <p><span class="label">Fix</span>${esc(pr.how_to_fix)}</p>
+      <p><span class="label">Drill</span>${esc(pr.drill)}</p>
+      ${chips ? `<div class="chips">${chips}</div>` : ""}</div>`;
+  });
+  if (r.strengths.length) html += `<h3 style="font-size:15px">Strengths</h3><ul>${r.strengths.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  html += `<div class="focus"><span class="label">Next match</span>${esc(r.next_match_focus)}</div>`;
+  if (!res.valid) html += `<p class="warn">This report failed validation: ${esc((res.problems || []).join("; "))}</p>`;
+  const cost = res.cost_usd == null ? "unknown" : "$" + Number(res.cost_usd).toFixed(4);
+  html += `<div class="footer">${esc(res.backend)}:${esc(res.model)} · cost ${cost} · ${Math.round(res.latency_s || 0)}s</div>
+    <details><summary>What the model saw (MatchSummary)</summary><pre>${esc(JSON.stringify(s, null, 1))}</pre></details>`;
+  $("out").innerHTML = html;
+}
+
+$("load").onclick = loadMatches;
+$("acc").addEventListener("keydown", e => { if (e.key === "Enter") loadMatches(); });
+$("backend").onchange = () => store.set("backend", $("backend").value);
+$("uploadForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = $("file").files[0], acc = $("acc").value.trim();
+  if (!f || !acc) { $("status").textContent = "Choose a .dem file and enter your account ID first"; return; }
+  $("status").textContent = `Uploading ${f.name} (${Math.round(f.size / 1e6)} MB)...`;
+  const fd = new FormData(); fd.append("file", f); fd.append("account_id", acc);
+  try {
+    const { match_id } = await api("/api/upload", { method: "POST", body: fd });
+    $("status").textContent = `Uploaded match #${match_id}`;
+    await loadMatches(); runReport(match_id);
+  } catch (err) { $("status").textContent = err.message; }
+};
+init();
+</script>
+</body>
+</html>

@@ -3,6 +3,18 @@
 Turns a Deadlock match into a short, prioritized list of things to fix.
 The full plan is in [CLAUDE.md](CLAUDE.md), and the data findings are in [docs/phase0-findings.md](docs/phase0-findings.md).
 
+## Try the prototype
+
+```
+$env:GEMINI_API_KEY = "your-key"        # free: https://aistudio.google.com/apikey  (or ANTHROPIC_API_KEY for Claude)
+.venv\Scripts\python -m backend.app      # opens http://127.0.0.1:8000
+```
+
+Enter your account ID (the number in your Steam friend code), click **Load my matches**, pick a match and
+click **Get report**. Replays you downloaded in Deadlock (match history -> Download Replay) are found
+automatically and add replay-based issues; you can also upload a `.dem`. Gemini's free tier can take a
+few minutes per report.
+
 ## Setup (Windows, Python 3.12)
 
 ```
@@ -28,6 +40,7 @@ Replays expire on Valve's servers after about 2–4 weeks. Keep a backup copy of
 | `python scripts/review_issues.py --account-id A` | Write a review sheet of detected issues for your last 10 matches to `data\review\` |
 | `python -m backend.coach <match_id> --account-id A [--demo FILE]` | Write a coaching report. `--backend claude` (default, needs `ANTHROPIC_API_KEY`; `--model claude-opus-5-5` for the larger model), `--backend gemini` (free testing, needs `GEMINI_API_KEY`), `--backend local` (OpenAI-compatible server) |
 | `python scripts/phase3_check.py --account-id A [--backend gemini]` | Phase 3 check: 20 reports, validated, with total cost, written to `data\review\phase3_reports.md` |
+| `python -m backend.app` | Prototype web app at http://127.0.0.1:8000 |
 | `pytest` | Run the tests. Tests that need the fixture replays are skipped if they are missing. |
 | `pytest -m network` | Run a few checks against the live community API |
 

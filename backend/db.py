@@ -184,7 +184,9 @@ def get_engine(url: str | None = None) -> Engine:
         from pathlib import Path
 
         Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(url)
+    # The web app runs report jobs in background threads; SQLite needs this to share connections.
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    engine = create_engine(url, connect_args=connect_args)
     metadata.create_all(engine)
     _add_missing_columns(engine)
     return engine
