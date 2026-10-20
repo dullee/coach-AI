@@ -41,6 +41,22 @@
   .footer { font-size:12px; color:var(--muted); margin-top:14px; }
   .warn { color:var(--bad); }
   details summary { cursor:pointer; color:var(--muted); font-size:13px; margin-top:10px; }
+  .fb { display:flex; gap:6px; align-items:center; margin-top:10px; flex-wrap:wrap; font-size:13px; color:var(--muted); }
+  .fb button { padding:3px 10px; font-size:13px; }
+  .fb button.on.up { background:#1f3b2b; border-color:var(--good); color:var(--good); }
+  .fb button.on.down { background:#3b1f1f; border-color:var(--bad); color:var(--bad); }
+  .fb input { flex:1; min-width:160px; font-size:13px; padding:4px 8px; }
+  .since { border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin:12px 0; background:#1b1e26; }
+  .since h3 { margin:0 0 6px; font-size:14px; color:var(--accent); }
+  .since li { margin:3px 0; font-size:14px; }
+  .improved { color:var(--good); } .worse { color:var(--bad); }
+  table.trend { border-collapse:collapse; width:100%; font-size:13px; margin-top:6px; }
+  table.trend th, table.trend td { border-bottom:1px solid var(--line); padding:5px 6px; text-align:right; white-space:nowrap; }
+  table.trend th:first-child, table.trend td:first-child { text-align:left; white-space:normal; }
+  .rec { display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .dots span { display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:3px; background:var(--chip); }
+  .dots span.hit { background:var(--bad); }
+  .scroll { overflow-x:auto; }
   pre { white-space:pre-wrap; font-size:12px; color:var(--muted); max-height:400px; overflow:auto; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 </style>
@@ -51,6 +67,7 @@
   <label class="row">Account ID <input id="acc" size="12" placeholder="Steam friend code"></label>
   <label class="row">Model <select id="backend"></select></label>
   <button id="load" class="primary">Load my matches</button>
+  <button id="progressBtn">My progress</button>
   <span class="muted" id="status"></span>
 </header>
 <main>
@@ -156,6 +173,7 @@ function evidenceChip(issue) {
 }
 
 function render(res) {
+  currentReport = res;
   const s = res.summary, r = res.report, p = s.player;
   const issues = Object.fromEntries((s.issues || []).map(i => [i.id, i]));
   const [k, d, a] = s.key_stats.kda;
@@ -163,14 +181,15 @@ function render(res) {
   let html = `<h2 style="margin-top:0;font-size:16px">${esc(p.hero)} · <span class="${p.result}">${p.result}</span> · ${dur} · KDA ${k}/${d}/${a}</h2>
     <div class="muted" style="font-size:13px">Compared with ${esc(p.rank_bracket)} players${p.bracket_basis === "estimated_from_stats" ? ` (you're unranked; this match's stats match ${esc(p.estimated_level)})` : ""} · ${s.analysis_level === "medium" ? "replay + stats" : "stats only (no replay)"}</div>`;
   if (!r) { $("out").innerHTML = html + `<p class="warn">No usable report: ${esc((res.problems || []).join("; "))}</p>`; return; }
-  html += `<p class="headline">${esc(r.headline)}</p>`;
+  html += `<div id="followup"></div><p class="headline">${esc(r.headline)}</p>`;
   r.priorities.forEach((pr, n) => {
     const chips = pr.issue_ids.map(id => issues[id]).filter(Boolean).map(evidenceChip).join("");
     html += `<div class="prio"><h3>${n + 1}. ${esc(pr.title)}</h3>
       <p><span class="label">Why</span>${esc(pr.why)}</p>
       <p><span class="label">Fix</span>${esc(pr.how_to_fix)}</p>
       <p><span class="label">Drill</span>${esc(pr.drill)}</p>
-      ${chips ? `<div class="chips">${chips}</div>` : ""}</div>`;
+      ${chips ? `<div class="chips">${chips}</div>` : ""}
+      ${feedbackBar(res, n)}</div>`;
   });
   if (r.strengths.length) html += `<h3 style="font-size:15px">Strengths</h3><ul>${r.strengths.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
   html += `<div class="focus"><span class="label">Next match</span>${esc(r.next_match_focus)}</div>`;
@@ -179,8 +198,92 @@ function render(res) {
   html += `<div class="footer">${esc(res.backend)}:${esc(res.model)} · cost ${cost} · ${Math.round(res.latency_s || 0)}s</div>
     <details><summary>What the model saw (MatchSummary)</summary><pre>${esc(JSON.stringify(s, null, 1))}</pre></details>`;
   $("out").innerHTML = html;
+  loadFollowup(s.match_id);
 }
 
+function feedbackBar(res, n) {
+  if (res.report_id == null) return "";
+  const f = (res.feedback || {})[String(n)] || {};
+  const up = f.rating === 1 ? "null" : "1", down = f.rating === -1 ? "null" : "-1";
+  return `<div class="fb" id="fb-${n}">Useful?
+    <button class="up ${f.rating === 1 ? "on" : ""}" onclick="rate(${res.report_id}, ${n}, ${up})">&#128077; Yes</button>
+    <button class="down ${f.rating === -1 ? "on" : ""}" onclick="rate(${res.report_id}, ${n}, ${down})">&#128078; No</button>
+    <input id="fbc-${n}" placeholder="Optional comment (press Enter to save)" value="${esc(f.comment || "")}"
+      onkeydown="if (event.key === 'Enter') rate(${res.report_id}, ${n}, undefined)">
+    <span id="fbs-${n}"></span></div>`;
+}
+
+let currentReport = null;
+async function rate(reportId, n, rating) {
+  const prev = ((currentReport && currentReport.feedback) || {})[String(n)] || {};
+  const body = { report_id: reportId, priority_index: n,
+                 rating: rating === undefined ? (prev.rating ?? null) : rating,
+                 comment: $(`fbc-${n}`).value };
+  try {
+    const { feedback } = await api("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                      body: JSON.stringify(body) });
+    currentReport.feedback = feedback;
+    $(`fb-${n}`).outerHTML = feedbackBar(currentReport, n);
+    $(`fbs-${n}`).textContent = "saved";
+  } catch (e) { $(`fbs-${n}`).textContent = e.message; }
+}
+
+const fmtStat = (v, unit) => v == null ? "-" : (unit === "deaths/10 min" ? Math.round(v * 10) / 10 : fmt(v, unit));
+
+async function loadFollowup(matchId) {
+  try {
+    const { follow_up: f } = await api(`/api/followup?account_id=${$("acc").value.trim()}&match_id=${matchId}`);
+    if (!f || !$("followup")) return;
+    const good = new Set(["improved", "not detected this match"]), bad = new Set(["worse", "still detected"]);
+    const rows = f.items.map(i => {
+      const cls = good.has(i.status) ? "improved" : bad.has(i.status) ? "worse" : "muted";
+      const nums = i.before != null
+        ? `${esc(fmtStat(i.before, i.unit))} &rarr; ${esc(fmtStat(i.after, i.unit))}` +
+          (i.median != null ? ` <span class="muted">(median ${esc(fmtStat(i.median, i.unit))})</span>` : "")
+        : "";
+      return `<li>${esc(i.label)}: ${nums} <span class="${cls}">${esc(i.status)}</span></li>`;
+    }).join("");
+    $("followup").innerHTML = `<div class="since"><h3>Since your last coached match (#${f.previous_match_id}, ${esc(f.previous_hero)}${f.same_hero ? "" : ", different hero"})</h3>
+      <div style="font-size:13px" class="muted">Last focus: ${esc(f.previous_focus)}</div>
+      <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul></div>`;
+  } catch (e) { /* the follow-up box is optional */ }
+}
+
+async function showProgress() {
+  const acc = $("acc").value.trim();
+  if (!/^\d+$/.test(acc)) { $("status").textContent = "Enter your account ID first"; return; }
+  store.set("account_id", acc);
+  $("out").innerHTML = `<h2 style="margin-top:0;font-size:16px">Your progress</h2>
+    <div class="muted">Analysing your recent matches (the first time takes a few seconds)...</div>`;
+  try {
+    const p = await api(`/api/progress?account_id=${acc}&last_n=10`);
+    const ms = p.matches;
+    if (!ms.length) { $("out").innerHTML = `<p class="muted">No analysable matches yet.</p>`; return; }
+    let html = `<h2 style="margin-top:0;font-size:16px">Your progress: last ${ms.length} matches</h2>
+      <h3 style="font-size:15px;margin-bottom:4px">Recurring issues</h3>
+      <div class="muted" style="font-size:12px">Dots: oldest match on the left, newest on the right; red = detected.</div>`;
+    html += p.recurring.map(r => `<div class="rec"><div><b>${esc(r.label)}</b>
+        <div class="muted" style="font-size:12px">${r.count} of ${r.of} matches${r.latest_streak > 1 ? ` · last ${r.latest_streak} in a row` : ""}</div></div>
+        <div class="dots">${ms.map(m => `<span class="${m.issues.includes(r.id) ? "hit" : ""}" title="#${m.match_id} ${esc(m.hero)}"></span>`).join("")}</div>
+      </div>`).join("") || `<p class="muted">No recurring issues.</p>`;
+    html += `<h3 style="font-size:15px;margin:16px 0 4px">Your stats, match by match</h3><div class="scroll"><table class="trend"><tr><th></th>` +
+      ms.map(m => `<th title="#${m.match_id}">${esc(m.hero)}<br><span class="${m.result}">${esc(m.result)}</span><br><span class="muted">${esc(m.date || "")}</span></th>`).join("") + `</tr>`;
+    for (const tr of p.trends) {
+      const vals = tr.values;
+      html += `<tr><td>${esc(tr.label)}<br><span class="muted">${esc(tr.window)}</span></td>` + vals.map((v, i) => {
+        const prev = vals.slice(0, i).filter(x => x != null);
+        const avg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;
+        const better = v != null && avg != null && (tr.higher_is_better ? v > avg : v < avg);
+        const worse = v != null && avg != null && (tr.higher_is_better ? v < avg : v > avg);
+        return `<td class="${better ? "improved" : worse ? "worse" : ""}">${esc(fmtStat(v, tr.unit))}</td>`;
+      }).join("") + `</tr>`;
+    }
+    html += `</table></div><div class="muted" style="font-size:12px;margin-top:6px">Green / red: better / worse than your average over the matches before it.</div>`;
+    $("out").innerHTML = html;
+  } catch (e) { $("out").innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+}
+
+$("progressBtn").onclick = showProgress;
 $("load").onclick = loadMatches;
 $("acc").addEventListener("keydown", e => { if (e.key === "Enter") loadMatches(); });
 $("backend").onchange = () => store.set("backend", $("backend").value);

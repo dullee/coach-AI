@@ -77,3 +77,5 @@ class Detector:
     needs_replay: bool
     run: Callable[[Context], Issue | None]
     doc: str = ""
+    label: str = ""              # short name for the progress view, e.g. "Souls per minute in lane"
+    metric: str | None = None    # metric it compares (for tracking it across matches); None for count-based rules

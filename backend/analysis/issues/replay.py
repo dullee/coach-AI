@@ -80,9 +80,9 @@ def _low_objective_presence(ctx: Context) -> Issue | None:
 
 DETECTORS = [
     Detector("died_far_from_team", "positioning", True, _died_far_from_team,
-             "Several deaths with no teammate nearby."),
+             "Several deaths with no teammate nearby.", label="Deaths far from your team"),
     Detector("died_with_ultimate_ready", "abilities", True, _died_with_ultimate_ready,
-             "Died while the ultimate was off cooldown."),
+             "Died while the ultimate was off cooldown.", label="Deaths with ultimate ready"),
     Detector("low_objective_presence", "objectives", True, _low_objective_presence,
-             "Absent when the team destroyed enemy objectives."),
+             "Absent when the team destroyed enemy objectives.", label="Missing when objectives fall"),
 ]

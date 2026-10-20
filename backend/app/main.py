@@ -137,15 +137,23 @@ def _report_job(account_id: int, match_id: int, backend: str | None, model: str 
             (db.match_players.c.match_id == match_id) & (db.match_players.c.account_id == account_id))).first()
     demo = None if parsed else local_replays().get(match_id)
     outcome = make_report(account_id, match_id, backend=backend, model=model, demo_path=demo, progress=progress)
-    return _report_payload(outcome.summary.model_dump(mode="json", exclude_none=True),
+    return _report_payload(outcome.report_id, outcome.summary.model_dump(mode="json", exclude_none=True),
                            outcome.result.report.model_dump(mode="json") if outcome.result.report else None,
                            outcome.result.valid, outcome.result.problems, outcome.coach.backend, outcome.coach.model,
                            outcome.result.cost_usd, outcome.result.latency_s)
 
 
-def _report_payload(summary, report, valid, problems, backend, model, cost, latency) -> dict:
-    return {"summary": summary, "report": report, "valid": valid, "problems": problems,
-            "backend": backend, "model": model, "cost_usd": cost, "latency_s": latency}
+def _report_payload(report_id, summary, report, valid, problems, backend, model, cost, latency) -> dict:
+    return {"report_id": report_id, "summary": summary, "report": report, "valid": valid, "problems": problems,
+            "backend": backend, "model": model, "cost_usd": cost, "latency_s": latency,
+            "feedback": _feedback_for(report_id)}
+
+
+def _feedback_for(report_id: int) -> dict:
+    t = db.report_feedback
+    with get_engine().connect() as conn:
+        rows = conn.execute(t.select().where(t.c.report_id == report_id).order_by(t.c.id)).mappings().all()
+    return {str(r["priority_index"]): {"rating": r["rating"], "comment": r["comment"]} for r in rows}
 
 
 @app.post("/api/reports")
@@ -174,8 +182,8 @@ def latest_report(account_id: int, match_id: int) -> dict:
                          .order_by(t.c.id.desc())).mappings().first()
     if r is None:
         raise HTTPException(404, "no report yet")
-    return _report_payload(r["summary_json"], r["report_json"], r["valid"], r["problems"], r["backend"], r["model"],
-                           r["cost_usd"], r["latency_s"])
+    return _report_payload(r["id"], r["summary_json"], r["report_json"], r["valid"], r["problems"], r["backend"],
+                           r["model"], r["cost_usd"], r["latency_s"])
 
 
 @app.post("/api/upload")
@@ -198,3 +206,53 @@ def upload(file: UploadFile = File(...), account_id: int = Form(...)) -> dict:
         raise HTTPException(400, "this replay has no match ID")
     tmp.replace(dest_dir / f"{match_id}.dem")
     return {"match_id": match_id}
+
+
+class FeedbackRequest(BaseModel):
+    report_id: int
+    priority_index: int          # 0-based priority; -1 = whole report
+    rating: int | None = None    # +1 / -1 / None (comment only)
+    comment: str | None = None
+
+
+@app.post("/api/feedback")
+def feedback(req: FeedbackRequest) -> dict:
+    """Store (or replace) the player's rating/comment for one priority of a report."""
+    from sqlalchemy import delete
+
+    if req.rating not in (None, 1, -1):
+        raise HTTPException(400, "rating must be 1, -1 or null")
+    t = db.report_feedback
+    engine = get_engine()
+    with engine.begin() as conn:
+        if conn.execute(select(db.coaching_reports.c.id).where(db.coaching_reports.c.id == req.report_id)).first() is None:
+            raise HTTPException(404, "unknown report")
+        conn.execute(delete(t).where((t.c.report_id == req.report_id) & (t.c.priority_index == req.priority_index)))
+        if req.rating is not None or (req.comment or "").strip():
+            conn.execute(t.insert().values(report_id=req.report_id, priority_index=req.priority_index,
+                                           rating=req.rating, comment=(req.comment or "").strip()[:2000] or None))
+    return {"feedback": _feedback_for(req.report_id)}
+
+
+def _analysis_deps():
+    from backend.analysis.benchmarks import Benchmarks
+
+    return get_engine(), load(), Benchmarks.load()
+
+
+@app.get("/api/progress")
+def progress_view(account_id: int, last_n: int = 10) -> dict:
+    from backend.analysis.progress import progress
+
+    engine, static, bench = _analysis_deps()
+    with DeadlockApiClient() as client:
+        return progress(client, engine, static, bench, account_id, last_n=min(max(last_n, 2), 30))
+
+
+@app.get("/api/followup")
+def followup_view(account_id: int, match_id: int) -> dict:
+    from backend.analysis.progress import follow_up
+
+    engine, static, bench = _analysis_deps()
+    with DeadlockApiClient() as client:
+        return {"follow_up": follow_up(client, engine, static, bench, account_id, match_id)}

@@ -171,6 +171,32 @@ coach_calls = Table(
     Column("request_id", String(64)),
 )
 
+# Per-match analysis without the model (issues + all metric values), cached for the
+# progress view. Recomputed when the benchmarks are rebuilt.
+match_analysis = Table(
+    "match_analysis", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("match_id", BigInteger, nullable=False, index=True),
+    Column("account_id", BigInteger, nullable=False, index=True),
+    Column("benchmarks_built_at", Float),
+    Column("analysis_level", String(8)),
+    Column("info", JSON),            # hero, result, date, kda, bracket id
+    Column("summary_json", JSON),
+    Column("metrics", JSON),         # metric id -> value (null when not applicable)
+)
+
+# Player feedback on each priority of a report (Phase 5 rating buttons; Phase 4 training data).
+report_feedback = Table(
+    "report_feedback", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("report_id", Integer, ForeignKey("coaching_reports.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("priority_index", SmallInteger, nullable=False),   # 0-based; -1 = the report as a whole
+    Column("rating", SmallInteger),                           # +1 useful, -1 not useful, null = comment only
+    Column("comment", String(2000)),
+)
+
 EVENT_TABLES = {
     "players": match_players, "kills": kills, "damage": damage, "purchases": purchases,
     "ability_uses": ability_uses, "ability_upgrades": ability_upgrades,

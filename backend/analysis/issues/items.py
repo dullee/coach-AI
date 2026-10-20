@@ -54,4 +54,5 @@ def _run(ctx: Context) -> Issue | None:
 
 
 DETECTORS = [Detector("late_core_items", "items", False, _run,
-                      "Third big item finished later than for higher-rank players on this hero.")]
+                      "Third big item finished later than for higher-rank players on this hero.",
+                      label="Core items (3rd big item) vs higher ranks", metric=METRIC_ID)]

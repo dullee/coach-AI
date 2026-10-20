@@ -14,7 +14,9 @@ $env:GEMINI_API_KEY = "your-key"        # free: https://aistudio.google.com/apik
 
 Enter your account ID (the number in your Steam friend code), click **Load my matches**, pick a match and
 click **Get report**. Replays you downloaded in Deadlock (match history -> Download Replay) are found
-automatically and add replay-based issues; you can also upload a `.dem`. Gemini's free tier can take a
+automatically and add replay-based issues; you can also upload a `.dem`. **My progress** shows recurring issues and stat trends across your
+last 10 matches; each report shows how you did on the previous report's focus, and you can rate
+each priority (useful / not useful, optional comment). Gemini's free tier can take a
 few minutes per report.
 
 ## Setup (Windows, Python 3.12)

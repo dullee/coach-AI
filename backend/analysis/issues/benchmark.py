@@ -41,7 +41,7 @@ def metric_detector(
             timestamps_s=timestamps(ctx) if timestamps else [], hero=ctx.hero_name,
         )
 
-    return Detector(issue_id, metric.category, False, run, doc)
+    return Detector(issue_id, metric.category, False, run, doc, label=metric.label, metric=metric_id)
 
 
 DETECTORS = [
