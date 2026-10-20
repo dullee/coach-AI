@@ -27,7 +27,7 @@ Replays expire on Valve's servers after about 2–4 weeks. Keep a backup copy of
 | `python -m backend.summarize --match-id N --account-id A --demo FILE` | Same, Medium tier: parse the replay first and add replay-based issues |
 | `python scripts/review_issues.py --account-id A` | Write a review sheet of detected issues for your last 10 matches to `data\review\` |
 | `python -m backend.coach <match_id> --account-id A [--demo FILE]` | Write a coaching report. `--backend claude` (default, needs `ANTHROPIC_API_KEY`; `--model claude-opus-5-5` for the larger model), `--backend gemini` (free testing, needs `GEMINI_API_KEY`), `--backend local` (OpenAI-compatible server) |
-| `python scripts/phase3_check.py --account-id A` | Phase 3 check: 20 reports, validated, with total cost, written to `data\review\phase3_reports.md` |
+| `python scripts/phase3_check.py --account-id A [--backend gemini]` | Phase 3 check: 20 reports, validated, with total cost, written to `data\review\phase3_reports.md` |
 | `pytest` | Run the tests. Tests that need the fixture replays are skipped if they are missing. |
 | `pytest -m network` | Run a few checks against the live community API |
 
