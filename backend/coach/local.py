@@ -28,6 +28,14 @@ from backend.coach.schema import COACHING_REPORT_SCHEMA
 log = logging.getLogger(__name__)
 
 
+def message_text(message: dict) -> str:
+    """Answer text from an OpenAI-style message: a string, or a list of content parts."""
+    content = message.get("content")
+    if isinstance(content, list):
+        return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content or ""
+
+
 class OpenAICompatCoach(CoachModel):
     backend = "openai-compat"
     max_tokens = 4000
@@ -115,12 +123,20 @@ class OpenAICompatCoach(CoachModel):
             raise RuntimeError(f"{self.backend} returned HTTP {r.status_code}: {r.text[:300]}")
         elapsed = time.perf_counter() - start
         body = r.json()
+        if not body.get("choices"):
+            raise RuntimeError(f"{self.backend} returned no answer: {json.dumps(body)[:400]}")
         choice = body["choices"][0]
         usage = body.get("usage") or {}
         finish = choice.get("finish_reason")
         tin, tout = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        text = message_text(choice.get("message") or {})
+        if not text.strip():
+            # A gateway can answer 200 with nothing in it (seen on Pollinations: 0 tokens in/out).
+            # That is not a bad report from the model, so don't spend the validation retry on it.
+            raise RuntimeError(f"{self.backend} returned an empty answer (tokens in/out: {tin}/{tout}). "
+                               f"Raw response: {json.dumps(body)[:400]}")
         return Completion(
-            text=choice["message"].get("content") or "",
+            text=text,
             stop_reason="max_tokens" if finish == "length" else finish,
             model=body.get("model", self.model),
             input_tokens=tin, output_tokens=tout,

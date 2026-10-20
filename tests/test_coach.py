@@ -312,6 +312,30 @@ def test_pollinations_sends_schema_in_prompt_and_accepts_fenced_json(summary):
     assert '"next_match_focus"' in body["messages"][0]["content"]          # schema is in the system prompt
 
 
+def test_empty_gateway_answer_is_reported_not_retried(summary):
+    from backend.coach.local import PollinationsCoach
+
+    calls = []
+
+    def server(req):
+        calls.append(req)
+        # Shape seen in a real Pollinations run: 200, empty content, 0 tokens.
+        return httpx.Response(200, json={"choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
+                                         "usage": {"prompt_tokens": 0, "completion_tokens": 0}})
+
+    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)))
+    with pytest.raises(RuntimeError, match="empty answer"):
+        coach.generate(summary)
+    assert len(calls) == 1
+
+
+def test_content_parts_are_joined():
+    from backend.coach.local import message_text
+
+    assert message_text({"content": [{"type": "text", "text": "{\"a\""}, {"type": "text", "text": ": 1}"}]}) == '{"a": 1}'
+    assert message_text({"content": None}) == ""
+
+
 def test_pollinations_needs_a_key(monkeypatch):
     from backend.coach.factory import BackendUnavailable, make_coach
 
