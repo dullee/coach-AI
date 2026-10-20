@@ -15,6 +15,7 @@ JSON mode once; coach/validate.py checks the result either way.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -43,22 +44,33 @@ class OpenAICompatCoach(CoachModel):
         self.usd_per_gpu_hour = usd_per_gpu_hour
         self.schema_mode = True   # switched off if the server rejects json_schema
 
-    def _response_format(self) -> dict:
+    # "json_schema" (default), or "none" for servers/models without response_format:
+    # then the schema goes into the system prompt and validate() strips ``` fences.
+    output_mode = "json_schema"
+
+    def _response_format(self) -> dict | None:
+        if self.output_mode == "none":
+            return None
         if self.schema_mode:
             return {"type": "json_schema",
                     "json_schema": {"name": "CoachingReport", "schema": COACHING_REPORT_SCHEMA, "strict": True}}
         return {"type": "json_object"}
 
+    send_temperature = True
     max_retries = 4          # on 429 / 5xx (free tiers have low per-minute limits)
     max_wait_s = 65.0
 
     def _post(self, system: str, user: str) -> httpx.Response:
+        fmt = self._response_format()
+        if fmt is None:
+            system = (f"{system}\n\nAnswer with one JSON object, nothing else, matching this JSON schema:\n"
+                      f"{json.dumps(COACHING_REPORT_SCHEMA)}")
         body = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "response_format": self._response_format(),
             "max_tokens": self.max_tokens,
-            "temperature": 0.3,
+            **({"response_format": fmt} if fmt else {}),
+            **({"temperature": 0.3} if self.send_temperature else {}),
             **self.extra_body,
         }
         timeouts = 0
@@ -95,7 +107,7 @@ class OpenAICompatCoach(CoachModel):
     def complete(self, system: str, user: str) -> Completion:
         start = time.perf_counter()
         r = self._post(system, user)
-        if r.status_code == 400 and self.schema_mode:
+        if r.status_code == 400 and self.schema_mode and self.output_mode != "none":
             log.warning("%s rejected the JSON schema (%s); falling back to JSON mode", self.backend, r.text[:200])
             self.schema_mode = False
             r = self._post(system, user)
@@ -155,3 +167,39 @@ class GeminiCoach(OpenAICompatCoach):
 
     def cost(self, elapsed_s, input_tokens, output_tokens) -> float | None:
         return 0.0
+
+
+POLLINATIONS_URL = "https://gen.pollinations.ai/v1"
+POLLINATIONS_DEFAULT_MODEL = "anthropic/claude-haiku-5.5"   # from GET /v1/models, checked 2026-10-20
+
+
+class PollinationsCoach(OpenAICompatCoach):
+    """Claude (and other models) through Pollinations' OpenAI-compatible gateway, for prototype testing.
+
+    Verified from https://gen.pollinations.ai/docs and the live model catalog (2026-10-20):
+    - POST {POLLINATIONS_URL}/chat/completions, key as a Bearer token (POLLINATIONS_API_KEY,
+      a secret sk_ key from enter.pollinations.ai/keys).
+    - anthropic/claude-haiku-5.5 is paid_only (spends "Pollen" credits) and does not list
+      response_format, so the schema goes into the system prompt (output_mode "none").
+    - Prices are in Pollen, not USD, so cost_usd is left unknown here.
+    This is a third-party reseller, not Anthropic's API: use it for testing only, not for
+    Phase 3 cost numbers or Phase 4 teacher data.
+    """
+
+    backend = "pollinations"
+    output_mode = "none"
+    send_temperature = False   # not in the Claude models' supported_parameters
+    max_tokens = 8000
+    timeout_s = 180.0
+    extra_body = {"reasoning_effort": os.environ.get("COACH_POLLINATIONS_REASONING", "low")}
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, http: httpx.Client | None = None):
+        key = api_key or os.environ.get("POLLINATIONS_API_KEY")
+        if not key:
+            raise ValueError("set POLLINATIONS_API_KEY (secret key from https://enter.pollinations.ai/keys; "
+                             "Claude models need Pollen credits)")
+        super().__init__(model=model or os.environ.get("COACH_POLLINATIONS_MODEL", POLLINATIONS_DEFAULT_MODEL),
+                         base_url=POLLINATIONS_URL, api_key=key, http=http)
+
+    def cost(self, elapsed_s, input_tokens, output_tokens) -> float | None:
+        return None   # billed in Pollen, not USD

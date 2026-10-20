@@ -287,6 +287,39 @@ def test_backend_factory_reports_missing_keys(monkeypatch):
     assert make_coach("local").backend == "local"
 
 
+def test_pollinations_sends_schema_in_prompt_and_accepts_fenced_json(summary):
+    from backend.coach.local import POLLINATIONS_DEFAULT_MODEL, POLLINATIONS_URL, PollinationsCoach
+
+    seen = []
+
+    def server(req):
+        body = json.loads(req.content)
+        seen.append((req, body))
+        fenced = "```json\n" + json.dumps(good_report(summary)) + "\n```"
+        return httpx.Response(200, json={"model": body["model"],
+                                         "choices": [{"message": {"content": fenced}, "finish_reason": "stop"}],
+                                         "usage": {"prompt_tokens": 2500, "completion_tokens": 700}})
+
+    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)))
+    result = coach.generate(summary)
+    assert result.valid and result.cost_usd is None   # billed in Pollen, not USD
+    req, body = seen[0]
+    assert str(req.url) == f"{POLLINATIONS_URL}/chat/completions"
+    assert req.headers["authorization"] == "Bearer sk_test"
+    assert body["model"] == POLLINATIONS_DEFAULT_MODEL
+    assert "response_format" not in body and "temperature" not in body   # not supported by this model
+    assert body["reasoning_effort"] == "low"
+    assert '"next_match_focus"' in body["messages"][0]["content"]          # schema is in the system prompt
+
+
+def test_pollinations_needs_a_key(monkeypatch):
+    from backend.coach.factory import BackendUnavailable, make_coach
+
+    monkeypatch.delenv("POLLINATIONS_API_KEY", raising=False)
+    with pytest.raises(BackendUnavailable, match="POLLINATIONS_API_KEY"):
+        make_coach("pollinations")
+
+
 def test_pricing():
     assert cost_usd("claude-haiku-5-5", 1_000_000, 0) == pytest.approx(0.10)
     assert cost_usd("claude-opus-5-5", 0, 1_000_000) == pytest.approx(20.0)

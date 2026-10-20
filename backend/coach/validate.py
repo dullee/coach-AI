@@ -105,7 +105,13 @@ def find_ungrounded(report: CoachingReport, summary: MatchSummary) -> list[str]:
     return sorted(set(bad), key=bad.index)
 
 
+FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
+
+
 def validate(text: str, summary: MatchSummary) -> Validation:
+    # Models without structured output sometimes wrap the JSON in a ```json fence.
+    if isinstance(text, str) and (m := FENCE.match(text)):
+        text = m.group(1)
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, TypeError) as e:

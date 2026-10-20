@@ -1,4 +1,5 @@
-"""Pick a coaching backend by name: claude (default), gemini (free testing), local."""
+"""Pick a coaching backend by name: claude (default), gemini (free testing),
+pollinations (third-party gateway, testing only), local."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ import os
 
 from backend.coach.base import CoachModel
 
-BACKENDS = ("claude", "gemini", "local")
+BACKENDS = ("claude", "gemini", "pollinations", "local")
 
 
 class BackendUnavailable(Exception):
@@ -30,6 +31,13 @@ def make_coach(backend: str | None = None, model: str | None = None) -> CoachMod
 
         try:
             return GeminiCoach(model=model)
+        except ValueError as e:
+            raise BackendUnavailable(str(e)) from e
+    if backend == "pollinations":
+        from backend.coach.local import PollinationsCoach
+
+        try:
+            return PollinationsCoach(model=model)
         except ValueError as e:
             raise BackendUnavailable(str(e)) from e
     if backend == "local":
