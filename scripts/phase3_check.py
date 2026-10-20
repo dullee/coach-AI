@@ -7,7 +7,8 @@ from the anonymized fixture matches in tests/data/api/ to reach N. Every
 report is validated (schema, issue ids, invented numbers), all calls are
 logged with tokens and cost, and a sheet for spot-checking is written to
 data/review/phase3_reports.md after every report. Rerunning reuses valid
-reports from earlier runs with the same model (use --fresh to redo them).
+reports from earlier runs with the same model (use --fresh to redo them);
+--offline only rebuilds the sheet from stored reports.
 This calls the model API: Claude Haiku 5.5 costs roughly $0.001-0.003 per
 report; the Gemini free tier is free but slow (1-4 min per report).
 """
@@ -44,6 +45,7 @@ def main() -> int:
     ap.add_argument("--backend", choices=BACKENDS, default=default_backend())
     ap.add_argument("--model")
     ap.add_argument("--fresh", action="store_true", help="ignore reports from earlier runs")
+    ap.add_argument("--offline", action="store_true", help="only build the sheet from stored reports; call no model")
     args = ap.parse_args()
 
     try:
@@ -99,6 +101,9 @@ def main() -> int:
             result, cost, latency, ncalls = done[key]
             totals["reused"] += 1
             print(f"[{n}/{len(jobs)}] {label}: reusing the valid report from an earlier run", flush=True)
+        elif args.offline:
+            sections += [f"## {n}. {label}: not done yet", ""]
+            continue
         else:
             print(f"[{n}/{len(jobs)}] {label} ...", flush=True)
             try:
