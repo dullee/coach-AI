@@ -140,6 +140,7 @@ coaching_reports = Table(
     Column("account_id", BigInteger, index=True),
     Column("backend", String(16)),
     Column("model", String(64)),
+    Column("prompt_version", String(32)),            # coach/prompt.py PROMPT_VERSION
     Column("analysis_level", String(8)),
     Column("valid", Boolean, nullable=False),
     Column("summary_json", JSON, nullable=False),    # what the model saw (kept for Phase 4 training data)
@@ -185,4 +186,22 @@ def get_engine(url: str | None = None) -> Engine:
         Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url)
     metadata.create_all(engine)
+    _add_missing_columns(engine)
     return engine
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Tiny migration: create_all() adds new tables but not new columns to existing
+    ones. Add any missing (nullable) column so an existing local database keeps working."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have and col.nullable and not col.primary_key:
+                    ddl = col.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {ddl}'))

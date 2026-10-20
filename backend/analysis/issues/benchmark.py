@@ -37,7 +37,7 @@ def metric_detector(
             return None
         return Issue(
             id=issue_id, category=metric.category, severity=benchmark_severity(g),
-            evidence=metric_evidence(metric, value, dist, g),
+            evidence=metric_evidence(metric, value, dist, g, ctx.static),
             timestamps_s=timestamps(ctx) if timestamps else [], hero=ctx.hero_name,
         )
 

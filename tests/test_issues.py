@@ -119,7 +119,7 @@ def test_late_core_items(static, setup):
     assert issue.id == "late_core_items" and issue.category == "items"
     assert issue.evidence.player_value == 145 and issue.evidence.bracket_p50 == 100
     up = next_bracket_up(setup["bracket"], static)
-    assert issue.evidence.details["benchmark_scope"].endswith(up.id)   # compared one bracket up
+    assert issue.evidence.details["benchmark_scope"].endswith(up.label)   # compared one bracket up
     assert issue.evidence.details["slowest_item"] == static.items[setup["item_id"]].name
     assert issue.evidence.details["slowest_item_higher_rank_p50_s"] == 600
     assert run(149.0).severity >= issue.severity

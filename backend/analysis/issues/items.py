@@ -48,7 +48,7 @@ def _run(ctx: Context) -> Issue | None:
                         "slowest_item_bought_s": slow["t"], "slowest_item_higher_rank_p50_s": round(slow["p50"], 1)})
     return Issue(
         id="late_core_items", category="items", severity=benchmark_severity(good),
-        evidence=metric_evidence(metric, value, dist, good, **details),
+        evidence=metric_evidence(metric, value, dist, good, ctx.static, **details),
         timestamps_s=[value], hero=ctx.hero_name,
     )
 

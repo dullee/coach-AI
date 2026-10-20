@@ -53,11 +53,20 @@ def benchmark_severity(good_pct: float) -> float:
     return round(min(1.0, max(0.0, (0.5 - good_pct) / 0.45)), 3)
 
 
-def metric_evidence(metric: Metric, value: float, dist: Distribution, good_pct: float, **details) -> Evidence:
+def bracket_label(static: StaticData, bracket_id: str) -> str:
+    """Readable bracket name for evidence text ("t03-04" -> "Acolyte-Sentinel")."""
+    from backend.analysis.brackets import brackets
+
+    return next((b.label for b in brackets(static) if b.id == bracket_id), "all ranks")
+
+
+def metric_evidence(metric: Metric, value: float, dist: Distribution, good_pct: float,
+                    static: StaticData, **details) -> Evidence:
+    who = "same hero" if dist.hero_id else "all heroes"
     return Evidence(
         player_value=round(value, 3), bracket_p50=round(dist.p50, 3), percentile=round(good_pct, 3),
         unit=metric.unit, window=metric.window,
-        details={"benchmark_scope": f"{'hero' if dist.hero_id else 'all heroes'} / {dist.bracket}", "benchmark_n": dist.n, **details},
+        details={"benchmark_scope": f"{who}, {bracket_label(static, dist.bracket)}", "benchmark_n": dist.n, **details},
     )
 
 

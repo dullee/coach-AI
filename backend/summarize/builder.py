@@ -36,7 +36,7 @@ def _strengths(ctx: Context) -> list[Strength]:
         g = good_percentile(metric, dist, value)
         if g >= STRENGTH_ABOVE:
             found.append((g, Strength(id=f"strong_{metric.id}", label=metric.label,
-                                      evidence=metric_evidence(metric, value, dist, g))))
+                                      evidence=metric_evidence(metric, value, dist, g, ctx.static))))
     return [s for _, s in sorted(found, key=lambda x: x[0], reverse=True)[:MAX_STRENGTHS]]
 
 

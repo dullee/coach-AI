@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 
 from backend import db
 from backend.coach.base import CallRecord, CoachModel, CoachResult
+from backend.coach.prompt import PROMPT_VERSION
 from backend.summarize.contracts import MatchSummary
 
 
@@ -18,6 +19,7 @@ def save_result(engine: Engine, coach: CoachModel, summary: MatchSummary, accoun
     with engine.begin() as conn:
         report_id = conn.execute(db.coaching_reports.insert().values(
             match_id=summary.match_id, account_id=account_id, backend=coach.backend, model=coach.model,
+            prompt_version=PROMPT_VERSION,
             analysis_level=summary.analysis_level, valid=bool(result and result.valid),
             summary_json=summary.model_dump(mode="json", exclude_none=True),
             report_json=result.report.model_dump(mode="json") if result and result.report else None,

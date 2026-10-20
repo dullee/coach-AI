@@ -7,7 +7,7 @@ from the anonymized fixture matches in tests/data/api/ to reach N. Every
 report is validated (schema, issue ids, invented numbers), all calls are
 logged with tokens and cost, and a sheet for spot-checking is written to
 data/review/phase3_reports.md after every report. Rerunning reuses valid
-reports from earlier runs with the same model (use --fresh to redo them);
+reports from earlier runs with the same model and prompt version (use --fresh to redo them);
 --offline only rebuilds the sheet from stored reports.
 This calls the model API: Claude Haiku 5.5 costs roughly $0.001-0.003 per
 report; the Gemini free tier is free but slow (1-4 min per report).
@@ -28,6 +28,7 @@ from backend import config, db  # noqa: E402
 from backend.analysis.benchmarks import Benchmarks  # noqa: E402
 from backend.coach.base import CoachRefusal, CoachResult  # noqa: E402
 from backend.coach.contracts import CoachingReport  # noqa: E402
+from backend.coach.prompt import PROMPT_VERSION  # noqa: E402
 from backend.coach.factory import BACKENDS, BackendUnavailable, default_backend, make_coach  # noqa: E402
 from backend.coach.render import render  # noqa: E402
 from backend.coach.store import save_result  # noqa: E402
@@ -144,11 +145,12 @@ def main() -> int:
 
 
 def previous_reports(engine, backend: str, model: str) -> dict:
-    """Valid reports from earlier runs with the same backend and model, keyed by (match_id, hero)."""
+    """Valid reports from earlier runs with the same backend, model and prompt version, keyed by (match_id, hero)."""
     out = {}
     with engine.connect() as conn:
         rows = conn.execute(select(db.coaching_reports).where(
             (db.coaching_reports.c.backend == backend) & (db.coaching_reports.c.model == model)
+            & (db.coaching_reports.c.prompt_version == PROMPT_VERSION)
             & db.coaching_reports.c.valid).order_by(db.coaching_reports.c.id)).mappings().all()
         counts = dict(conn.execute(select(db.coach_calls.c.report_id, func.count())
                                    .group_by(db.coach_calls.c.report_id)).all())
