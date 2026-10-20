@@ -95,25 +95,28 @@ deadlock-coach/
 ├── data/                     # gitignored: dumps, demos, cache
 └── tests/                    # fixtures.json lists 3+ real match IDs; scripts/fetch_fixtures.py downloads the .dem files into data/demos/ (too big for git, ~300 MB each)
 Data contracts
-Three JSON shapes connect the stages. Define them as Pydantic models in backend/summarize/ and backend/coach/ first; every other module codes against them. Field names below are a starting point; adjust after Phase 0.
+Three JSON shapes connect the stages. They are Pydantic models in backend/summarize/contracts.py (Issue, Strength, MatchSummary) and backend/coach/contracts.py (CoachingReport); every other module codes against them.
 Issue — one detected mistake, produced by a rule in analysis/issues/:
 {
   "id": "low_souls_per_min_laning",
-  "category": "farming",
-  "severity": 0.8,
-  "evidence": {"player_value": 412, "bracket_p50": 560, "unit": "souls/min", "window": "0-10 min"},
+  "category": "farming",   // farming | survival | combat | teamplay | objectives | mechanics | items | positioning | abilities
+  "severity": 0.8,         // 0-1
+  "evidence": {"player_value": 412, "bracket_p50": 560, "percentile": 0.12, "unit": "souls/min", "window": "0-10 min",
+               "details": {"benchmark_scope": "hero / t05-06", "benchmark_n": 1840}},   // percentile: 1 = best; details: extra quotable facts
   "timestamps_s": [],
   "hero": "<loaded from static data>"
 }
 MatchSummary — what the coaching model receives (target under 2,000 tokens):
 {
   "match_id": 0,
-  "patch": "<from API>",
+  "patch": "2026-09-29 (client 6796)",
+  "analysis_level": "free",   // free = API data only; medium = API data + replay
   "player": {"hero": "...", "rank_bracket": "...", "result": "loss", "duration_s": 2100},
-  "key_stats": {"kda": [4, 7, 9], "souls_per_min": 498, "damage_per_min": 0},
-  "issues": ["<top 5-10 Issue objects, sorted by severity>"],
-  "strengths": ["<top 2-3 metrics above bracket median>"],
-  "hero_context": "<short RAG snippet: current abilities/items for this hero>"
+  "key_stats": {"kda": [4, 7, 9], "souls_per_min": 498, "damage_per_min": 0, "last_hits": 120,
+                "kill_participation": 0.5, "ability_casts": {"<ability name>": 12}},   // ability_casts: medium only
+  "issues": ["<up to 8 Issue objects, sorted by severity>"],
+  "strengths": [{"id": "strong_kill_participation", "label": "...", "evidence": {"...": "same shape as Issue evidence"}}],   // up to 3
+  "hero_context": "<short snippet from static data: the hero's abilities and the items held at the end>"
 }
 CoachingReport — what the model must return (validated; retry once on invalid JSON):
 {
@@ -141,13 +144,14 @@ Phase 1 — Ingestion and parsing
 [x] ingest/: replay fetch by match ID (salts endpoint → download → zstd decompress, despite the .bz2 name), as a background-friendly function.
 [x] Store parsed matches in the database.
 Done when: python -m backend.parse <file.dem> stores a match in under 30 s, and tests pass on the fixture replays.
-Status (2026-10-20): met, awaiting human confirmation. 14-18 s per match end to end; 58 tests pass (pytest), including 32 on the 3 fixture replays.
+Status (2026-10-20): met and confirmed by the developer. 14-18 s per match end to end; 58 tests pass (pytest), including 32 on the 3 fixture replays.
 Phase 2 — Analysis engine
-[ ] metrics/: souls per minute by phase, damage per minute, deaths by phase, item timings, ability usage counts, objective participation, kill participation.
-[ ] benchmarks/: compute percentiles per hero and rank bracket with filtered DuckDB queries against the remote data lake (match_player is 552 GB; never download it whole). About 6 brackets of two tiers each, with Eternus merged into the top bracket; filter to the current patch.
-[ ] issues/: at least 10 rule-based detectors, each with an id, category, severity formula and evidence. Examples: low laning farm vs. bracket, late core item, deaths while far from teammates, low objective participation, unused ultimate in fights.
-[ ] summarize/: build a MatchSummary under 2,000 tokens.
+[x] metrics/: souls per minute by phase, damage per minute, deaths by phase, item timings, ability usage counts, objective participation, kill participation.
+[x] benchmarks/: compute percentiles per hero and rank bracket with filtered DuckDB queries against the remote data lake (match_player is 552 GB; never download it whole). Ranked matches only. 5 brackets of two tiers each (the top tier merged into the bracket below); filter to matches since the last major patch. Details: docs/phase2-notes.md.
+[x] issues/: at least 10 rule-based detectors, each with an id, category, severity formula and evidence. Examples: low laning farm vs. bracket, late core item, deaths while far from teammates, low objective participation, unused ultimate in fights.
+[x] summarize/: build a MatchSummary under 2,000 tokens.
 Done when: every detector has a unit test, and three team members agree that detected issues on 10 real matches are reasonable.
+Status (2026-10-20): 14 detectors, all unit-tested (99 tests pass; 2 live-API tests run separately). Human review of 10 real matches still to do (scripts/review_issues.py); how to do it solo is not decided yet.
 Phase 3 — Coaching LLM layer (cloud baseline)
 [ ] coach/: one interface, CoachModel.generate(summary) -> CoachingReport, with adapters for the Claude API and a local OpenAI-compatible server (vLLM/Ollama).
 [ ] System prompt with coaching rules; use prompt caching for the static part.
