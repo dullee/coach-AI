@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "zstandard>=0.22",
     "duckdb>=1.1",   # benchmark queries against the community data lake
+    "anthropic>=1.15", # coaching model (Claude API)
 ]
 
 [project.optional-dependencies]
