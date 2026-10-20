@@ -153,13 +153,14 @@ Phase 2 — Analysis engine
 [x] issues/: at least 10 rule-based detectors, each with an id, category, severity formula and evidence. Examples: low laning farm vs. bracket, late core item, deaths while far from teammates, low objective participation, unused ultimate in fights.
 [x] summarize/: build a MatchSummary under 2,000 tokens.
 Done when: every detector has a unit test, and three team members agree that detected issues on 10 real matches are reasonable.
-Status (2026-10-20): 14 detectors, all unit-tested (99 tests pass; 2 live-API tests run separately). Human review of 10 real matches still to do (scripts/review_issues.py); how to do it solo is not decided yet.
+Status (2026-10-20): met and confirmed by the developer. 14 detectors, all unit-tested. The developer reviewed the detected issues on 8 of their own matches (5 with replays) alone and judged them reasonable; a single reviewer instead of three is a known limitation of the solo setup.
 Phase 3 — Coaching LLM layer (cloud baseline)
-[ ] coach/: one interface, CoachModel.generate(summary) -> CoachingReport, with adapters for the Claude API and a local OpenAI-compatible server (vLLM/Ollama).
-[ ] System prompt with coaching rules; use prompt caching for the static part.
-[ ] Validate output against the schema; retry once; log tokens and cost per call.
-[ ] CLI: python -m backend.coach <match_id> prints the report.
+[x] coach/: one interface, CoachModel.generate(summary) -> CoachingReport, with adapters for the Claude API and a local OpenAI-compatible server (vLLM/Ollama).
+[x] System prompt with coaching rules; use prompt caching for the static part.
+[x] Validate output against the schema; retry once; log tokens and cost per call.
+[x] CLI: python -m backend.coach <match_id> --account-id A prints the report (account needed: summaries are per player).
 Done when: 20 real matches produce valid reports with no invented numbers (spot-checked), and cost per call is logged.
+Status (2026-10-20): built and unit-tested with a fake API client (121 tests pass). Baseline model claude-haiku-5-5, premium claude-opus-5-5 (server-side refusal fallback on). The 20-match run (scripts/phase3_check.py) is waiting for an Anthropic API key.
 Phases 4–6: fine-tuning, app and premium video
 Phase 4 is the project's required fine-tuning component. Phases 4 and 5 can run in parallel once Phase 3 is done.
 Phase 4 — Fine-tune the coaching model
