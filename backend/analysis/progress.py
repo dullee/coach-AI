@@ -23,6 +23,9 @@ from backend.static_data import StaticData
 from backend.summarize.builder import build_summary
 from backend.summarize.sources import match_data
 
+# Bump when detectors or metrics change, so cached analyses are recomputed.
+ANALYSIS_VERSION = "2026-10-21.1"   # + replay-moment detectors
+
 # Stats shown as trends (in this order).
 TREND_METRICS = ["souls_per_min_0_10", "last_hits_0_10", "souls_per_min", "deaths_per_10_min",
                  "kill_participation", "damage_per_min", "objective_damage_per_min"]
@@ -45,7 +48,7 @@ def analyse_match(client: DeadlockApiClient, engine: Engine, static: StaticData,
     with engine.connect() as conn:
         row = conn.execute(t.select().where((t.c.match_id == match_id) & (t.c.account_id == account_id))
                            .order_by(t.c.id.desc())).mappings().first()
-    if row and row["benchmarks_built_at"] == built:
+    if row and row["benchmarks_built_at"] == built and (row["info"] or {}).get("analysis_version") == ANALYSIS_VERSION:
         replay_now = _has_replay(engine, match_id, account_id)
         if not (replay_now and row["analysis_level"] == "free"):   # re-analyse once a replay appears
             return dict(row)
@@ -63,7 +66,7 @@ def analyse_match(client: DeadlockApiClient, engine: Engine, static: StaticData,
     k, d, a = summary.key_stats.kda
     info = {"hero": summary.player.hero, "hero_id": int(frame["hero_id"][idx]), "result": summary.player.result,
             "date": _date(meta), "kda": f"{k}/{d}/{a}", "bracket": label_to_id.get(summary.player.rank_bracket),
-            "rank_bracket": summary.player.rank_bracket}
+            "rank_bracket": summary.player.rank_bracket, "analysis_version": ANALYSIS_VERSION}
     record = {"match_id": match_id, "account_id": account_id, "benchmarks_built_at": built,
               "analysis_level": summary.analysis_level, "info": info,
               "summary_json": summary.model_dump(mode="json", exclude_none=True), "metrics": values}

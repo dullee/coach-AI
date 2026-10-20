@@ -77,3 +77,27 @@ Date: 2026-10-20. These are facts verified while building Phase 2, plus the desi
   2. The stored replay.
   3. Asking the API to fetch the match from Steam.
 - The client now fails at once with `RateLimited` when the API asks for a wait longer than 2 minutes, instead of waiting and retrying.
+
+## Replay-moment detectors (added 2026-10-21)
+
+Five more replay-only detectors, for moments that don't end in a death.
+
+**Data:**
+- Boon `teamfights()` (hero-vs-hero damage clustered by time and place, 0.5 s) is now stored per match.
+- About 100 "fights" per match are reported, mostly kill-less lane skirmishes; only fights with 2+ kills count as teamfights (about 9 per match).
+
+**Calibration:** 41 real player-matches (3 fixture replays × 12 players + 5 of the developer's replays). Each rule flags roughly the top 10–15%.
+
+| Detector | Median | Fires when |
+|---|---|---|
+| `died_first_in_lost_fights` | 1 | 2+ |
+| `ultimate_unused_in_fights` | 1 | 3+ fights, and at least half of the fights where it was ready |
+| `many_near_deaths` (under 15% health, survived 10 s) | 6 | 10+ |
+| `farming_gaps` (alive, under 150 souls in 60+ s, 3:00–20:00) | 0 s | 60+ s |
+| `objectives_lost_while_away` (alive and more than 4,000 units away) | 3 | 5+, and at least half of own losses |
+
+**Findings during calibration:**
+- **The in-combat timer counts trooper fights too.** The player was "in combat" 44% of lane time in one replay, so it can't be used to separate idling from fighting. The farming-gap rule therefore only looks at souls earned.
+- **The unused-ultimate rule fires in 3 of the developer's 5 replays.** That agrees with the existing `died_with_ultimate_ready` finding.
+
+Older replays need `python scripts/reparse_all.py` to get teamfights; without them, the two fight detectors are skipped.

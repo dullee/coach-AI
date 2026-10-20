@@ -35,6 +35,8 @@ METRIC_OF = {
     "late_first_big_item": "first_big_item_s",
 }
 TESTED = set(METRIC_OF) | {"late_core_items", "died_far_from_team", "died_with_ultimate_ready", "low_objective_presence"}
+TESTED |= {"died_first_in_lost_fights", "ultimate_unused_in_fights", "many_near_deaths", "farming_gaps",
+           "objectives_lost_while_away"}   # tests/test_moments.py
 
 
 @pytest.fixture(scope="module")

@@ -25,6 +25,7 @@ class ReplayData:
     purchases: pl.DataFrame | None = None
     stat_snapshots: pl.DataFrame | None = None
     match: dict | None = None  # row of the matches table
+    teamfights: pl.DataFrame | None = None   # empty for matches parsed before fights were stored
 
     @property
     def rank_badge(self) -> int | None:
@@ -54,7 +55,7 @@ class ReplayData:
         team_slots = players.filter(pl.col("team") == team)["slot"].to_list()
         timeline = pl.scan_parquet(data_dir / match["timeline_path"]).filter(pl.col("slot").is_in(team_slots)).collect()
         return cls(match_id, slot, team, players, table(db.kills), table(db.ability_uses), table(db.objectives),
-                   timeline, table(db.purchases), table(db.stat_snapshots), match)
+                   timeline, table(db.purchases), table(db.stat_snapshots), match, table(db.teamfights))
 
     @classmethod
     def load_for_account(cls, match_id: int, account_id: int, engine: Engine, data_dir: Path | None = None) -> ReplayData:

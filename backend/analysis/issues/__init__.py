@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from backend.analysis.issues import benchmark, items, replay
+from backend.analysis.issues import benchmark, items, moments, replay
 from backend.analysis.issues.base import Context, Detector
 from backend.summarize.contracts import Issue
 
-DETECTORS: list[Detector] = [*benchmark.DETECTORS, *items.DETECTORS, *replay.DETECTORS]
+DETECTORS: list[Detector] = [*benchmark.DETECTORS, *items.DETECTORS, *replay.DETECTORS, *moments.DETECTORS]
 
 
 BY_ID: dict[str, Detector] = {d.id: d for d in DETECTORS}

@@ -58,10 +58,11 @@ class ParsedMatch:
     objectives: pl.DataFrame
     mid_boss: pl.DataFrame
     stat_snapshots: pl.DataFrame
+    teamfights: pl.DataFrame
     tables: tuple[str, ...] = field(
         default=(
             "players", "kills", "damage", "purchases", "ability_uses",
-            "ability_upgrades", "objectives", "mid_boss", "stat_snapshots",
+            "ability_upgrades", "objectives", "mid_boss", "stat_snapshots", "teamfights",
         ),
         repr=False,
     )
@@ -210,6 +211,19 @@ def parse_demo(path: str | Path, requester_account_id: int | None = None) -> Par
 
     mid_boss = stamp(demo.mid_boss.with_columns(_team("team_num").alias("team")), "team", "event")
 
+    # Boon's teamfight detector (hero-vs-hero damage clustered in time and space; 0.5 s).
+    # Many "fights" are lane skirmishes without kills; analysis filters on kills.
+    fights = demo.teamfights()
+    teamfights = with_clock(fights.rename({"start_tick": "tick"})).select(
+        pl.lit(match_id).alias("match_id"), "fight_id", pl.col("tick").alias("start_tick"), "end_tick",
+        pl.col("game_s").alias("start_s"),
+        (pl.col("game_s") + pl.col("duration_seconds")).alias("end_s"),
+        "center_x", "center_y",
+        pl.col("participants").list.eval(pl.element().replace_strict(slot_of, default=None, return_dtype=pl.Int8))
+        .list.drop_nulls().alias("participant_slots"),
+        "hero_damage", "kills",
+    )
+
     timeline = with_clock(
         demo.player_ticks.drop(*TIMELINE_DROP).with_columns(to_slot("hero_id", "slot"))
     ).select(pl.lit(match_id).alias("match_id"), "slot", "game_s", pl.all().exclude("match_id", "slot", "game_s"))
@@ -232,5 +246,5 @@ def parse_demo(path: str | Path, requester_account_id: int | None = None) -> Par
     return ParsedMatch(
         match=match, players=players, timeline=timeline, kills=kills, damage=damage,
         purchases=purchases, ability_uses=ability_uses, ability_upgrades=ability_upgrades,
-        objectives=objectives, mid_boss=mid_boss, stat_snapshots=stat_snapshots,
+        objectives=objectives, mid_boss=mid_boss, stat_snapshots=stat_snapshots, teamfights=teamfights,
     )

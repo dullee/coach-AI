@@ -197,10 +197,23 @@ report_feedback = Table(
     Column("comment", String(2000)),
 )
 
+# Boon teamfights (time/space clusters of hero-vs-hero damage).
+teamfights = Table(
+    "teamfights", metadata,
+    _match_fk(),
+    Column("fight_id", Integer, nullable=False),
+    Column("start_tick", Integer), Column("end_tick", Integer),
+    Column("start_s", Float), Column("end_s", Float),
+    Column("center_x", Float), Column("center_y", Float),
+    Column("participant_slots", JSON),
+    Column("hero_damage", Integer),
+    Column("kills", Integer),
+)
+
 EVENT_TABLES = {
     "players": match_players, "kills": kills, "damage": damage, "purchases": purchases,
     "ability_uses": ability_uses, "ability_upgrades": ability_upgrades,
-    "objectives": objectives, "mid_boss": mid_boss, "stat_snapshots": stat_snapshots,
+    "objectives": objectives, "mid_boss": mid_boss, "stat_snapshots": stat_snapshots, "teamfights": teamfights,
 }
 
 

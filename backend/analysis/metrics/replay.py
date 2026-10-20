@@ -84,6 +84,131 @@ def objective_presence(rd: ReplayData) -> tuple[int, int, list[float]]:
     return destroyed.height, near, missed
 
 
+# ---- replay moments (calibrated on fixture + developer replays, see docs/phase2-notes.md) -------
+
+REAL_FIGHT_MIN_KILLS = 2         # Boon also reports kill-less lane skirmishes; those aren't teamfights
+FIGHT_KILL_GRACE_S = 3.0         # kills right after the last damage still belong to the fight
+NEAR_DEATH_HEALTH = 0.15         # under 15% of max health...
+NEAR_DEATH_SURVIVE_S = 10.0      # ...and not dead within 10 s
+NEAR_DEATH_SEPARATION_S = 15.0   # separate episodes
+FARM_WINDOW_S = (180.0, 1200.0)  # 3:00-20:00, when farm matters most
+FARM_GAP_MIN_S = 60.0            # a gap is at least a minute...
+FARM_GAP_MAX_SOULS = 150         # ...earning fewer souls than this
+DEFEND_DISTANCE = 4000.0         # "away" from your own objective when it fell
+
+
+@dataclass(frozen=True)
+class Fight:
+    start_s: float
+    end_s: float
+    won: bool | None            # None = even
+    ally_kills: int
+    enemy_kills: int
+    took_part: bool
+    died_first: bool             # player was the first of their team to die in it
+    ult_ready_at_start: bool
+    ult_cast: bool
+
+
+def _team_of(rd: ReplayData) -> dict[int, int]:
+    return dict(zip(rd.players["slot"].to_list(), rd.players["team"].to_list()))
+
+
+def _ultimate_class(rd: ReplayData, static: StaticData) -> str | None:
+    hero_id = int(rd.players.filter(pl.col("slot") == rd.slot)["hero_id"][0])
+    for cls in static.hero(hero_id).abilities:
+        item = static.item_by_class_name(cls)
+        if item and item.ability_type == "ultimate":
+            return cls
+    return None
+
+
+def fights(rd: ReplayData, static: StaticData) -> list[Fight]:
+    """Real teamfights (2+ kills) with the outcome for the player's team and the player's part in them."""
+    if rd.teamfights is None or rd.teamfights.is_empty():
+        return []
+    team = _team_of(rd)
+    offset = server_clock_offset(rd)
+    ult = _ultimate_class(rd, static)
+    me = rd.timeline.filter(pl.col("slot") == rd.slot).sort("tick")
+    casts = rd.ability_uses.filter((pl.col("slot") == rd.slot) & (pl.col("ability_class") == ult)) if ult else None
+    out = []
+    for f in rd.teamfights.filter(pl.col("kills") >= REAL_FIGHT_MIN_KILLS).sort("start_tick").iter_rows(named=True):
+        ks = rd.kills.filter(pl.col("game_s").is_between(f["start_s"], f["end_s"] + FIGHT_KILL_GRACE_S)).sort("tick")
+        victims = ks["victim_slot"].to_list()
+        ally_deaths = [v for v in victims if team.get(v) == rd.team]
+        enemy_deaths = [v for v in victims if v is not None and team.get(v) != rd.team]
+        won = None if len(enemy_deaths) == len(ally_deaths) else len(enemy_deaths) > len(ally_deaths)
+        took_part = rd.slot in (f["participant_slots"] or [])
+        at_start = me.filter(pl.col("tick") <= f["start_tick"]).tail(1)
+        ready = False
+        if ult and offset is not None and at_start.height and at_start["is_alive"][0] and at_start["has_ultimate_trained"][0]:
+            ready_at = max(at_start["ultimate_cooldown_start"][0], at_start["ultimate_cooldown_end"][0])
+            ready = ready_at <= f["start_s"] + offset
+        cast = bool(casts is not None and casts.filter(pl.col("game_s").is_between(f["start_s"], f["end_s"])).height)
+        out.append(Fight(f["start_s"], f["end_s"], won, len(enemy_deaths), len(ally_deaths), took_part,
+                         bool(ally_deaths) and ally_deaths[0] == rd.slot, ready, cast))
+    return out
+
+
+def near_deaths(rd: ReplayData) -> list[float]:
+    """Match times where the player dropped under NEAR_DEATH_HEALTH of max health and survived."""
+    me = rd.timeline.filter(pl.col("slot") == rd.slot).sort("tick")
+    low = me.filter(pl.col("is_alive") & (pl.col("max_health") > 0)
+                    & (pl.col("health") < pl.col("max_health") * NEAR_DEATH_HEALTH))
+    deaths = rd.kills.filter(pl.col("victim_slot") == rd.slot)["game_s"].to_list()
+    out: list[float] = []
+    for t in low["game_s"].to_list():
+        if t is None or (out and t - out[-1] < NEAR_DEATH_SEPARATION_S):
+            continue
+        if any(0 <= d - t <= NEAR_DEATH_SURVIVE_S for d in deaths):
+            continue
+        out.append(round(t, 1))
+    return out
+
+
+def farming_gaps(rd: ReplayData) -> list[tuple[float, float]]:
+    """(start, end) of stretches in 3:00-20:00 where the player was alive but earned fewer than
+    FARM_GAP_MAX_SOULS souls for at least FARM_GAP_MIN_S (wandering, waiting, slow rotations).
+
+    No combat filter: the replay's in-combat timer also counts trooper fights (44% of lane
+    time in a fixture), and a player who is fighting is normally also earning."""
+    lo, hi = FARM_WINDOW_S
+    me = (rd.timeline.filter((pl.col("slot") == rd.slot) & pl.col("game_s").is_between(lo, hi))
+          .filter(pl.col("tick") % 64 == 0).sort("tick")      # one sample per second (64 ticks/s)
+          .with_columns((pl.col("souls") + pl.col("spent_souls")).alias("earned")))
+    gaps: list[tuple[float, float]] = []
+    start = start_earned = prev_t = None
+
+    def close():
+        if start is not None and prev_t - start >= FARM_GAP_MIN_S:
+            gaps.append((round(start, 1), round(prev_t, 1)))
+
+    for t, earned, alive in me.select("game_s", "earned", "is_alive").iter_rows():
+        if not alive:
+            close()
+            start = None
+        elif start is None or earned - start_earned >= FARM_GAP_MAX_SOULS:
+            close()
+            start, start_earned = t, earned
+        prev_t = t
+    close()
+    return gaps
+
+
+def objectives_lost_away(rd: ReplayData) -> tuple[int, list[float]]:
+    """(own objectives destroyed, times of those that fell while the player was alive and far away)."""
+    lost = (rd.objectives.filter((pl.col("health") == 0) & (pl.col("team") == rd.team))
+            .sort("tick").group_by("entity_id", maintain_order=True).first())
+    me = rd.timeline.filter(pl.col("slot") == rd.slot)
+    away = []
+    for o in lost.iter_rows(named=True):
+        row = me.filter(pl.col("tick") <= o["tick"]).sort("tick").tail(1)
+        if row.height and row["is_alive"][0] and _xyz_dist(row.row(0, named=True), o) > DEFEND_DISTANCE:
+            away.append(round(o["game_s"], 1))
+    return lost.height, away
+
+
 def ability_casts(rd: ReplayData, static: StaticData) -> dict[str, int]:
     """Casts per hero ability. Abilities with 0 casts are left out: some are
     passives (e.g. a weapon-based ability showed 0 in every fixture) and the
