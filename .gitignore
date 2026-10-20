@@ -12,3 +12,6 @@ __pycache__/
 venv/
 .pytest_cache/
 *.egg-info/
+
+# Data bundle for moving PCs (scripts/data_bundle.py)
+/coach-data*.zip

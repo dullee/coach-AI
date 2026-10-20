@@ -67,3 +67,27 @@ def test_map_placement_matches_objective_markers():
         (-5416.0, 5024.0): (0.1981, 0.2164), (1288.0, 3472.0): (0.5099, 0.2885), (6443.9375, 4776.375): (0.7497, 0.2279)}
     for (x, y), (left, top) in walkers.items():
         assert abs(MAP_OFFSET + x / (2 * radius) - left) < 0.001 and abs(MAP_OFFSET - y / (2 * radius) - top) < 0.001
+
+
+def test_data_bundle_round_trip(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("data_bundle", "scripts/data_bundle.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    src = tmp_path / "src"
+    (src / "demos").mkdir(parents=True)
+    (src / "demos" / "1.dem").write_bytes(b"PBDEMS2\x00" + b"x" * 100)
+    (src / "ml" / "teacher").mkdir(parents=True)
+    (src / "ml" / "teacher" / "t.jsonl").write_text('{"id": 1}\n')
+    (src / "coach.db").write_bytes(b"db")
+    (src / "cache").mkdir()
+    (src / "cache" / "skip.json").write_text("{}")          # rebuilt automatically: not packed
+    (src / "uploads").mkdir()
+    (src / "uploads" / "x.dem.part").write_bytes(b"partial")  # unfinished files are skipped
+    z = mod.pack(tmp_path / "b.zip", with_lake=False, data_dir=src)
+    dst = tmp_path / "dst"
+    mod.unpack(z, data_dir=dst)
+    got = sorted(p.relative_to(dst).as_posix() for p in dst.rglob("*") if p.is_file())
+    assert got == ["coach.db", "demos/1.dem", "ml/teacher/t.jsonl"]
+    assert (dst / "demos" / "1.dem").read_bytes() == (src / "demos" / "1.dem").read_bytes()

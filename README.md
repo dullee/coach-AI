@@ -21,6 +21,32 @@ bracket, and a map of where you died (alone or with your team when a replay is a
 Open a report directly with `http://127.0.0.1:8000/?account=<id>&match=<match id>`. Gemini's free tier can take a
 few minutes per report.
 
+## Moving to another PC
+
+Code is in git; the `data` folder is not (it holds replays that Valve no longer serves).
+
+**On this PC**
+```
+git push                                                   # code
+.venv\Scripts\python scripts\data_bundle.py pack           # -> coach-data.zip (~1.4 GB)
+```
+Upload `coach-data.zip` to cloud storage (Google Drive, OneDrive, ...). Add `--with-lake` to also
+pack the data-lake extracts (+0.5 GB; only needed to rebuild benchmarks or training inputs offline).
+
+**On the new PC** (Windows, Python 3.12)
+```
+git clone https://github.com/dullee/coach-AI.git
+cd coach-AI
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python scripts\data_bundle.py unpack <path to coach-data.zip>
+.venv\Scripts\python -m pytest                            # should pass
+.venv\Scripts\python -m backend.app
+```
+API keys are not in the bundle or the repo: set them again in the terminal
+(`$env:POLLINATIONS_API_KEY = "sk_..."`, etc.). Training runs on Kaggle, so it doesn't matter
+which PC prepares the dataset.
+
 ## Setup (Windows, Python 3.12)
 
 ```
