@@ -183,9 +183,12 @@ Phase 5 — App and tiers
 [ ] Per-user daily limits; cost dashboard for the team.
 Done when: a new user can sign up, upload a replay and read a report end to end.
 Phase 6 — Premium video review
-[ ] Accept a video upload plus its replay; ask the player to align one event (e.g. their first death) to sync the timelines.
-[ ] Use replay timestamps of deaths and flagged issues to cut 5–10 s clips with ffmpeg.
-[ ] Sample 4–6 frames per clip; send frames + that moment's replay context to a multimodal model.
+[ ] Accept a video upload plus its replay; ask the player to align one event (e.g. their first death) to sync the timelines. Correct for pauses: the replay's match clock skips paused time, the video does not (world_ticks.is_paused).
+[ ] Find review moments in the replay, not only deaths. Moment detectors (each with a timestamp, a type and an impact score): deaths; near-deaths (health under ~20% but survived); burst damage taken without dying; taking damage while the camera faced away from the attacker (view angles + positions); lost teamfights (Boon teamfights()); objectives lost or taken while the player was far away; fights with the ultimate ready but not used; long farming gaps while alive; and good moments (multi-kills, escapes) for the strengths section.
+[ ] Choose up to ~8 moments per match: rank by impact, cover each report priority with at least one clip where one exists, mix moment types. If nothing stands out, say so (and show 1-2 good moments) rather than inventing problems.
+[ ] Cut clips with ffmpeg, length by moment type (deaths ~8 s before to 2 s after; fights and objectives longer, sampled sparsely).
+[ ] Sample 4–6 frames per clip; send frames + that moment's replay context (killer, nearest teammate, health change, ultimate state, timestamps) to a multimodal model. Same grounding rule as the coach: it may only quote numbers it was given.
+[ ] Vision backends behind one interface, like coach/: Claude (claude-opus-5-5 by default, premium) and Gemini for free testing (images via the OpenAI-compatible endpoint; also compare sending the clip as video). Gemini free tier may use inputs to improve Google's products and recordings can show other players' names and chat, so Gemini is for the developer's own test videos only, with a warning, never the default.
 [ ] Merge clip findings into the CoachingReport as an extra section; show each clip next to its comment.
 [ ] Delete source video after processing by default.
 Done when: a 30-minute match video yields a reviewed clip list in under 10 minutes, with cost per review logged.
