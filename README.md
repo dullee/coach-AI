@@ -26,12 +26,14 @@ Replays expire on Valve's servers after about 2–4 weeks. Keep a backup copy of
 | `python -m backend.summarize --match-id N --account-id A` | Print the MatchSummary for a player (Free tier: API data only) |
 | `python -m backend.summarize --match-id N --account-id A --demo FILE` | Same, Medium tier: parse the replay first and add replay-based issues |
 | `python scripts/review_issues.py --account-id A` | Write a review sheet of detected issues for your last 10 matches to `data\review\` |
+| `python -m backend.coach <match_id> --account-id A [--demo FILE]` | Write a coaching report with the Claude API (needs `ANTHROPIC_API_KEY`). `--model claude-opus-5-5` for the larger model, `--local` for a local OpenAI-compatible server |
+| `python scripts/phase3_check.py --account-id A` | Phase 3 check: 20 reports, validated, with total cost, written to `data\review\phase3_reports.md` |
 | `pytest` | Run the tests. Tests that need the fixture replays are skipped if they are missing. |
 | `pytest -m network` | Run a few checks against the live community API |
 
 `--account-id` marks the player the report is for. All other players are stored without names or IDs.
 
-## Layout so far (Phases 1–2)
+## Layout so far (Phases 1–3)
 
 - `backend/ingest/`: community API client (disk cache, throttling, retries) and replay download
 - `backend/static_data/`: hero, item, ability and rank data from the API, stored per game version
@@ -39,5 +41,8 @@ Replays expire on Valve's servers after about 2–4 weeks. Keep a backup copy of
 - `backend/db.py`: database schema (SQLite locally; `COACH_DB_URL` can point to PostgreSQL)
 - `backend/analysis/`: metrics (one file per family), rank-bracket benchmarks, and 14 rule-based issue detectors
 - `backend/summarize/`: builds the MatchSummary JSON for the coaching model (data contracts in `contracts.py`)
+- `backend/coach/`: coaching model interface (Claude API and local adapters), prompt, output validation (schema, issue ids, invented numbers), cost logging
+
+Settings for the coach: `ANTHROPIC_API_KEY`, `COACH_CLAUDE_MODEL` (default `claude-haiku-5-5`), `COACH_LOCAL_URL` (default `http://localhost:11434/v1`), `COACH_LOCAL_MODEL`, `COACH_LOCAL_USD_PER_GPU_HOUR`.
 
 Settings come from environment variables: `COACH_DATA_DIR`, `COACH_DB_URL`, `DEADLOCK_API_URL`.

@@ -130,6 +130,46 @@ mid_boss = Table(
     Column("event", String(16)),
 )
 
+# ---- coaching (Phase 3) -------------------------------------------------------
+
+coaching_reports = Table(
+    "coaching_reports", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("match_id", BigInteger, nullable=False, index=True),
+    Column("account_id", BigInteger, index=True),
+    Column("backend", String(16)),
+    Column("model", String(64)),
+    Column("analysis_level", String(8)),
+    Column("valid", Boolean, nullable=False),
+    Column("summary_json", JSON, nullable=False),    # what the model saw (kept for Phase 4 training data)
+    Column("report_json", JSON),                     # what it returned (null if unusable)
+    Column("problems", JSON),                        # left after the last attempt
+    Column("cost_usd", Float),
+    Column("latency_s", Float),
+)
+
+# One row per model call (incl. retries): tokens and cost for the cost dashboard.
+coach_calls = Table(
+    "coach_calls", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("report_id", Integer, ForeignKey("coaching_reports.id", ondelete="CASCADE"), index=True),
+    Column("backend", String(16)),
+    Column("model", String(64)),
+    Column("attempt", SmallInteger),
+    Column("input_tokens", Integer),
+    Column("output_tokens", Integer),
+    Column("cache_write_tokens", Integer),
+    Column("cache_read_tokens", Integer),
+    Column("cost_usd", Float),
+    Column("latency_s", Float),
+    Column("stop_reason", String(32)),
+    Column("valid", Boolean),
+    Column("problems", JSON),
+    Column("request_id", String(64)),
+)
+
 EVENT_TABLES = {
     "players": match_players, "kills": kills, "damage": damage, "purchases": purchases,
     "ability_uses": ability_uses, "ability_upgrades": ability_upgrades,
