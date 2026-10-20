@@ -80,7 +80,8 @@ So replays were available for at least **18 days**, and were gone by about **4 w
 | `/v1/sql` (**deprecated**) | 2 req/min, 20 req/hour (we hit this limit during the spike) |
 | `/v1/matches/demo/query` | 200 req/hour |
 
-- API keys raise most limits. Busy endpoints can return `503` with a `Retry-After` header; the client must respect it.
+- API keys raise most limits, but a key requires a paid Patreon membership. **Decided: no key.** The free per-IP limits plus caching are enough for a solo prototype.
+- Busy endpoints can return `503` with a `Retry-After` header; the client must respect it.
 - Analytics responses are cached on their side for 6–12 hours, so our cache can be at least that long.
 - Pass `disable_steam=true` on metadata and salts calls so we never use up the very small "from Steam" quota by accident.
 - Match history is only complete if the player's account is friends with one of the API's Steam bots. Otherwise it returns only the matches the API already has stored.
@@ -89,7 +90,7 @@ So replays were available for at least **18 days**, and were gone by about **4 w
 - The API's code is MIT licensed. The data lake is marked "isAccessibleForFree".
 - **No written terms cover using the data for ML training**, research or student projects. The privacy page doesn't cover it either.
 - The API lets players delete their data and opt out (Steam login required), so data we copy can go stale against their wishes.
-- **Action:** email `info@deadlock-api.com` before Phase 4. Describe the project and ask whether training on match data is OK. Record the answer here.
+- **Update 2026-10-20:** the developer contacted the Deadlock API team and got permission to use their data for this project, including training. Keep a copy of that reply with the project records.
 
 **"Database dumps" are now a data lake (Verified)**, which changes the plan (see section 3):
 - Hourly-updated Parquet files with a DuckLake catalog at `https://data.deadlock-api.com`, plus a read-only MCP server at `/v1/mcp`.
@@ -159,7 +160,12 @@ Sources: [gpuperhour.com](https://gpuperhour.com/blog/free-cloud-gpus-and-credit
 
 **Rough feasibility:** QLoRA on an 8B model with 2–3k short examples on one T4 should take a few hours per run. Four Kaggle accounts give the team about 120 GPU-hours per week, which is enough for several runs.
 
-**Serving:** free notebooks cannot host a model permanently. The demo needs a team member's local GPU running Ollama (an 8B model at 4-bit needs about 6 GB VRAM) or a small paid instance. **Each team member should record their Kaggle quota and local GPU here.**
+**Serving:** free notebooks cannot host a model permanently. The demo needs a local GPU running Ollama (an 8B model at 4-bit needs about 6 GB VRAM) or a small paid instance.
+
+**Decided (2026-10-20):** solo developer.
+- **Training:** Kaggle, about 30 GPU-hours per week.
+- **Serving:** Ollama on the developer's RTX 4060 (8 GB) at 4-bit. vLLM doesn't run natively on Windows, so Ollama is the default.
+- **Local training:** possible for short runs, but 8 GB is tight for an 8B model, so Kaggle is the main option.
 
 ---
 
@@ -223,7 +229,7 @@ So **all names and stats can come from the community API**, as the patch-proof r
 
 ## 4. Where findings disagree with CLAUDE.md (needs a team decision)
 
-1. **Replay fixtures can't go in git as-is.** Each replay is about 300 MB, so 3+ fixtures in `tests/` is about 1 GB.
+1. **DECIDED: download script.** Fixture match IDs go in `tests/fixtures.json`; a script downloads them into `data/demos/`. **Replay fixtures can't go in git as-is.** Each replay is about 300 MB, so 3+ fixtures in `tests/` is about 1 GB.
    - Proposal: keep replays in `data/demos/` (gitignored), and add a script that downloads the fixture match IDs listed in `tests/fixtures.json`. Small trimmed tables (Parquet) can be committed for fast unit tests.
    - Alternative: Git LFS.
 2. **"Database dumps" are now a 552 GB data lake**, and the `/v1/sql` endpoint is deprecated (2 req/min).
@@ -251,13 +257,19 @@ So **all names and stats can come from the community API**, as the patch-proof r
 
 ---
 
+**Decisions (2026-10-20), now in CLAUDE.md:**
+- Points 1, 2, 4, 5, 6, 7 and 9 accepted as proposed.
+- Point 3 (Medium tier): auto-fetch by match ID, with upload as the fallback.
+- Point 8 (privacy): store full detail only for the requesting player.
+- Still open: how to adapt the multi-person review steps (Phase 2 review, Phase 4 human review, evaluation raters) for a solo developer. Decide before Phase 2.
+
 ## 5. Action items before Phase 1
 
-- [ ] Team: decide on the 9 points in section 4 and update CLAUDE.md.
-- [ ] Email `info@deadlock-api.com` about training on their data (Q3), and consider requesting an API key.
+- [x] Decide on the 9 points in section 4 and update CLAUDE.md.
+- [x] Ask the Deadlock API team about training on their data (Q3): permission granted. No API key needed.
 - [ ] One team member: download a replay in-game and note the file location and format (Q2).
 - [ ] Confirm the yaw/pitch conventions on a known moment in a replay (Q1).
-- [ ] Each team member: record their Kaggle/Colab quota and local GPU (Q7).
+- [x] Record the Kaggle quota and local GPU (Q7): Kaggle ~30 h/week, RTX 4060 8 GB.
 - [ ] Re-check Valve's third-party tool rules before any public release (Q5).
 
 ## Reproducing this spike

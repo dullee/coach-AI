@@ -5,10 +5,10 @@ Input
 What the player gets
 Free
 Steam ID / account ID → community API match stats
-Hero win rates, item timing vs. higher-rank players, souls per minute, deaths, a 3-point coaching summary
+Hero win rates, item timing vs. higher-rank players, souls per minute, deaths with death/killer positions (from API death_details), a 3-point coaching summary
 Medium
-Uploaded replay (.dem), parsed with Boon
-Everything in Free, plus positioning at deaths, lane farming, ability usage, objective participation, fight timing
+Replay (.dem) fetched automatically by match ID when the API has a replay link (~2 weeks), otherwise uploaded; parsed with Boon
+Everything in Free, plus positioning over time and around deaths, aim/awareness from camera angles, lane farming, ability usage, objective participation, fight timing
 Premium
 Replay + the player's own video recording
 Everything in Medium, plus short clips around each death, reviewed by a vision model for decisions and mechanics
@@ -24,7 +24,7 @@ Hard constraints:
 • Patch-proof. Hero, item and ability names and stats are never hard-coded. They are loaded from the community API's static assets and refreshed on a schedule.
 • Cost-aware. The LLM never receives raw replays, raw tick data or full videos. It receives a compact JSON summary (target: under 2,000 tokens per request).
 • Respect rate limits of the community API. Cache every response.
-• Privacy. Only analyze matches for accounts the user has entered themselves. Uploaded videos are deleted after analysis unless the user chooses to keep them.
+• Privacy. Only analyze matches for accounts the user has entered themselves. Uploaded videos are deleted after analysis unless the user chooses to keep them. From a replay, store full detail only for the requesting player; the other 11 players are stored as anonymous rows (hero, team, positions, damage) with no names, Steam IDs or chat. Never use the data lake's steam_profiles tables.
 Non-goals for this project:
 • Live in-match coaching or overlays.
 • Support for other games.
@@ -47,7 +47,7 @@ Polars
 Matches Boon's output format
 Match and static data
 deadlock-api.com
-Match history, player stats, hero/item assets, database dumps for benchmarks and training
+Match history, player stats, hero/item assets, data lake (data.deadlock-api.com) for benchmarks and training. No API key (keys require a paid Patreon membership); stay within the free per-IP limits listed in docs/phase0-findings.md
 Database
 PostgreSQL (SQLite allowed for local dev)
 Users, matches, metrics, reports, ratings
@@ -55,13 +55,13 @@ Job queue
 Background worker (RQ or Celery with Redis)
 Replay parsing and video jobs take longer than a web request
 Coaching model (default)
-Fine-tuned 7–8B open instruct model, served with vLLM or Ollama
+Fine-tuned 7–8B open instruct model (default pick: Qwen3-8B, Apache 2.0), served with Ollama on the developer's RTX 4060 8 GB at 4-bit (vLLM does not run natively on Windows)
 Built in Phase 4
 Coaching model (baseline / premium)
 Claude API
 Small model for baseline, larger model for premium deep review
 Fine-tuning
-Unsloth + QLoRA on Colab or Kaggle GPUs
+Unsloth + QLoRA on Kaggle (~30 GPU-hours/week); local RTX 4060 8 GB as a backup for short runs
 Hugging Face datasets format
 Video
 ffmpeg for clipping and frame sampling; a multimodal model for review
@@ -93,7 +93,7 @@ deadlock-coach/
 │   └── eval/                 # blind comparison harness + metrics
 ├── frontend/                 # Next.js app
 ├── data/                     # gitignored: dumps, demos, cache
-└── tests/                    # fixtures include 3+ real .dem files
+└── tests/                    # fixtures.json lists 3+ real match IDs; scripts/fetch_fixtures.py downloads the .dem files into data/demos/ (too big for git, ~300 MB each)
 Data contracts
 Three JSON shapes connect the stages. Define them as Pydantic models in backend/summarize/ and backend/coach/ first; every other module codes against them. Field names below are a starting point; adjust after Phase 0.
 Issue — one detected mistake, produced by a rule in analysis/issues/:
@@ -128,21 +128,22 @@ Rule: every claim in a CoachingReport must trace back to an issue_id or a key st
 Phases 0–3: data to first coaching report
 By the end of Phase 3, a command-line run on a real replay produces a valid CoachingReport using a cloud model. No frontend yet.
 Phase 0 — Data spike (no app code)
-[ ] Install Boon, parse 3+ real replays, and list every dataset and column it returns (Demo.available_datasets()).
-[ ] Confirm whether player_ticks includes view angles / aim direction, and the tick rate.
-[ ] Find how players obtain their own replay files (Boon docs cover this).
-[ ] Explore the community API docs: match, player, hero-stats and asset endpoints; rate limits; database dump format and size.
-[ ] Write docs/phase0-findings.md answering every item in Open questions.
+[x] Install Boon, parse 3+ real replays, and list every dataset and column it returns (Demo.available_datasets()).
+[x] Confirm whether player_ticks includes view angles / aim direction, and the tick rate.
+[x] Find how players obtain their own replay files (Boon docs cover this).
+[x] Explore the community API docs: match, player, hero-stats and asset endpoints; rate limits; database dump format and size.
+[x] Write docs/phase0-findings.md answering every item in Open questions.
 Done when: findings doc exists and the team has updated this plan where the findings disagree with it.
 Phase 1 — Ingestion and parsing
 [ ] ingest/: typed API client with on-disk caching, retries and backoff.
 [ ] static_data/: load heroes, items and abilities from API assets; store by patch; scheduled refresh.
-[ ] parse/: wrap Boon; output normalized tables (player timeline, kills, damage, purchases, abilities, objectives) keyed by match and player.
+[ ] parse/: wrap Boon (pinned version); load only the core datasets; output normalized tables (player timeline, kills, damage, purchases, abilities, objectives) keyed by match and player; store the game build with each match. Join Boon IDs to static_data/ (never Boon's own name helpers); set BOON_DATA_DIR inside data/.
+[ ] ingest/: replay fetch by match ID (salts endpoint → download → zstd decompress, despite the .bz2 name), as a background-friendly function.
 [ ] Store parsed matches in the database.
 Done when: python -m backend.parse <file.dem> stores a match in under 30 s, and tests pass on the fixture replays.
 Phase 2 — Analysis engine
 [ ] metrics/: souls per minute by phase, damage per minute, deaths by phase, item timings, ability usage counts, objective participation, kill participation.
-[ ] benchmarks/: compute percentiles per hero and rank bracket from the database dumps; store as tables.
+[ ] benchmarks/: compute percentiles per hero and rank bracket with filtered DuckDB queries against the remote data lake (match_player is 552 GB; never download it whole). About 6 brackets of two tiers each, with Eternus merged into the top bracket; filter to the current patch.
 [ ] issues/: at least 10 rule-based detectors, each with an id, category, severity formula and evidence. Examples: low laning farm vs. bracket, late core item, deaths while far from teammates, low objective participation, unused ultimate in fights.
 [ ] summarize/: build a MatchSummary under 2,000 tokens.
 Done when: every detector has a unit test, and three team members agree that detected issues on 10 real matches are reasonable.
@@ -167,7 +168,7 @@ Done when: the fine-tuned model passes schema validation on 98%+ of test summari
 Phase 5 — App and tiers
 [ ] Accounts with a tier field (free / medium / premium); tier set manually for the demo.
 [ ] Free: enter Steam ID → pick a recent match → report from API data only.
-[ ] Medium: upload a .dem → background job → report with replay-based issues.
+[ ] Medium: fetch the replay by match ID or upload a .dem → background job → report with replay-based issues.
 [ ] Report page: headline, priorities, evidence numbers, strengths, "next match focus".
 [ ] Thumbs up/down and an optional comment on each priority, stored for future training.
 [ ] History page: issues trending across the player's last 10 matches.
@@ -208,7 +209,8 @@ Seconds per report
 Automatic
 Report the results as a table plus 3 side-by-side example reports. Also report inter-rater agreement so readers can trust the human scores.
 Team split and timeline
-The plan assumes four people and about 10 weeks; adjust the roles and weeks to your group size and deadline.
+Current setup: one developer building a prototype, holding all four roles below. Steps that need several people (Phase 2 issue review, Phase 4 human review, evaluation raters) are still to be adjusted for a solo developer.
+The original plan assumed four people and about 10 weeks:
 Role
 Owns
 Main phases
@@ -230,19 +232,20 @@ Rules for the AI developer
 2. Verify before you assume. If a library field, API endpoint or file format is not confirmed in docs/phase0-findings.md, check it in the code or docs first; never invent it.
 3. Never hard-code hero, item or ability names or numbers. Always read them from static_data/.
 4. Code against the data contracts. If a contract must change, update the Pydantic model, this plan and the tests in the same change.
-5. Write tests with every module, using the real replay fixtures in tests/.
+5. Write tests with every module, using the real replay fixtures listed in tests/fixtures.json (downloaded into data/demos/ by the fetch script; tests skip with a clear message if the files are missing).
 6. Never send raw replays, tick tables or full videos to an LLM. Log token counts and cost for every model call.
 7. Keep secrets (API keys) in environment variables; never commit them. data/ stays gitignored.
 8. Keep changes small and explained: one feature per commit, with a short note on what changed and how it was tested.
 9. When something in this plan is ambiguous or conflicts with what you find, stop and ask instead of guessing.
 Open questions (answer in Phase 0)
-[ ] Does Boon's player_ticks include view angles? If not, aim and crosshair analysis moves to the video tier.
-[ ] How does a player get the replay file for their own match, and how long is it available?
-[ ] What are the community API's rate limits and terms of use, and may a student project use the database dumps for training?
-[ ] How are rank brackets exposed, and are there enough matches per hero per bracket for stable benchmarks?
-[ ] Has Valve published any rules for third-party Deadlock tools? Re-check before any public release.
-[ ] Which 7–8B base model has the best licence and quality for fine-tuning at the time you start?
-[ ] How much free GPU time does the team have (Colab/Kaggle quotas) for training and serving?
+All answered in docs/phase0-findings.md (section 2). Short answers: view angles yes (64 Hz); replays downloadable ~18 days; API has free per-IP limits, and the API team gave permission to use the data, including for training; badge = tier×10+subrank, enough data except Eternus; no Valve policy found; Qwen3-8B; Kaggle ~30 h/week + local RTX 4060 8 GB.
+[x] Does Boon's player_ticks include view angles? If not, aim and crosshair analysis moves to the video tier.
+[x] How does a player get the replay file for their own match, and how long is it available?
+[x] What are the community API's rate limits and terms of use, and may a student project use the database dumps for training?
+[x] How are rank brackets exposed, and are there enough matches per hero per bracket for stable benchmarks?
+[x] Has Valve published any rules for third-party Deadlock tools? Re-check before any public release.
+[x] Which 7–8B base model has the best licence and quality for fine-tuning at the time you start?
+[x] How much free GPU time does the team have (Colab/Kaggle quotas) for training and serving?
 Sources
 • Boon Deadlock demo parser (PyPI)
 • Boon documentation
