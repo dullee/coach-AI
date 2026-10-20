@@ -1,0 +1,18 @@
+# Ollama Modelfile for the UNTUNED base model, served the same way as the fine-tuned coach,
+# for the "base vs fine-tuned" comparison in ml/eval.
+#   ollama pull qwen3:8b
+#   ollama create coach-base -f Modelfile.base
+FROM qwen3:8b
+
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+<think>
+
+</think>
+
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER temperature 0.3
+PARAMETER num_ctx 6144

@@ -1,0 +1,18 @@
+# Ollama Modelfile for the fine-tuned coach.
+#   ollama create coach -f Modelfile      (run in the folder with coach-q4_k_m.gguf)
+# Chat format = Qwen3 ChatML with thinking turned off: the empty <think></think> block is
+# added after "assistant", exactly as in training (ml/train/train_qlora.py).
+FROM ./coach-q4_k_m.gguf
+
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+<think>
+
+</think>
+
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER temperature 0.3
+PARAMETER num_ctx 6144

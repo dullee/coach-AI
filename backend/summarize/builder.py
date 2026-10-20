@@ -47,13 +47,17 @@ def _hero_context(static: StaticData, hero_id: int, meta_player: dict) -> str:
         item = static.item_by_class_name(cls)
         if item:
             abilities.append(f"{item.name} (ultimate)" if item.ability_type == "ultimate" else item.name)
-    kept = [i for i in meta_player.get("items") or [] if not i.get("sold_time_s")]
+    items = meta_player.get("items") or []
+    # Data-lake rows have no sold times: then we can only say what was bought, not what was held.
+    sold_known = all("sold_time_s" in i for i in items)
+    kept = [i for i in items if not i.get("sold_time_s")]
     names = []
     for i in kept:
         item = static.items.get(i["item_id"])
         if item and item.type == "upgrade" and item.name not in names:
             names.append(f"{item.name} (tier {item.tier})" if item.tier else item.name)
-    return f"Hero: {hero.name}. Abilities: {', '.join(abilities)}. Items held at the end: {', '.join(names) or 'none'}."
+    label = "Items held at the end" if sold_known else "Items bought during the match"
+    return f"Hero: {hero.name}. Abilities: {', '.join(abilities)}. {label}: {', '.join(names) or 'none'}."
 
 
 def build_summary(
