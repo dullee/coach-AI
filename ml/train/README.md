@@ -24,16 +24,20 @@ $env:POLLINATIONS_API_KEY = "sk_..."
    (train.jsonl, val.jsonl, train_qlora.py, Modelfile, ...). Name it e.g. `deadlock-coach-v1`.
 2. **Code -> New Notebook**. In the right panel: **Accelerator: GPU T4 x2** (or P100),
    **Internet: on**, and **Add Input** -> your dataset.
-3. First cell (install; versions as in Unsloth's Qwen3 notebook, 2026-10):
+3. Paste this into the notebook's code cell (installs the versions from Unsloth's Qwen3
+   notebook, 2026-10, finds your dataset folder by itself, and trains):
    ```
    !pip install -q unsloth
    !pip install -q transformers==4.57.6
    !pip install -q --no-deps trl==0.22.2
+   import glob, os
+   script = glob.glob("/kaggle/input/**/train_qlora.py", recursive=True)[0]
+   data = os.path.dirname(script)
+   print("dataset folder:", data)
+   !python "{script}" --data "{data}"
    ```
-4. Second cell (path: see the Input panel; usually `/kaggle/input/deadlock-coach-v1`):
-   ```
-   !python /kaggle/input/deadlock-coach-v1/train_qlora.py --data /kaggle/input/deadlock-coach-v1
-   ```
+4. To run it without keeping the browser open: **Save Version -> Save & Run All (Commit) -> Save**.
+   The run continues on Kaggle's servers; come back later and open the version's **Output** tab.
    Training ~350 examples x 2 epochs takes roughly 30-60 min on a T4; building the GGUF file
    another ~10-20 min.
 5. When it finishes, the **Output** panel has `coach-q4_k_m.gguf` (~5 GB), `coach_lora/` and
