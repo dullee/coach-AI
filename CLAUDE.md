@@ -50,7 +50,7 @@ deadlock-api.com
 Match history, player stats, hero/item assets, data lake (data.deadlock-api.com) for benchmarks and training. No API key (keys require a paid Patreon membership); stay within the free per-IP limits listed in docs/phase0-findings.md
 Database
 PostgreSQL (SQLite allowed for local dev)
-Users, matches, metrics, reports, ratings
+Users, matches, metrics, reports, ratings. Exception: the per-tick player timeline (~1.2-1.5M rows/match) is a Parquet file in data/parsed/<match_id>/, referenced from matches.timeline_path
 Job queue
 Background worker (RQ or Celery with Redis)
 Replay parsing and video jobs take longer than a web request
@@ -135,12 +135,13 @@ Phase 0 — Data spike (no app code)
 [x] Write docs/phase0-findings.md answering every item in Open questions.
 Done when: findings doc exists and the team has updated this plan where the findings disagree with it.
 Phase 1 — Ingestion and parsing
-[ ] ingest/: typed API client with on-disk caching, retries and backoff.
-[ ] static_data/: load heroes, items and abilities from API assets; store by patch; scheduled refresh.
-[ ] parse/: wrap Boon (pinned version); load only the core datasets; output normalized tables (player timeline, kills, damage, purchases, abilities, objectives) keyed by match and player; store the game build with each match. Join Boon IDs to static_data/ (never Boon's own name helpers); set BOON_DATA_DIR inside data/.
-[ ] ingest/: replay fetch by match ID (salts endpoint → download → zstd decompress, despite the .bz2 name), as a background-friendly function.
-[ ] Store parsed matches in the database.
+[x] ingest/: typed API client with on-disk caching, retries and backoff.
+[x] static_data/: load heroes, items and abilities from API assets; store by patch; scheduled refresh.
+[x] parse/: wrap Boon (pinned version); load only the core datasets; output normalized tables (player timeline, kills, damage, purchases, abilities, objectives) keyed by match and player; store the game build with each match. Join Boon IDs to static_data/ (never Boon's own name helpers); set BOON_DATA_DIR inside data/.
+[x] ingest/: replay fetch by match ID (salts endpoint → download → zstd decompress, despite the .bz2 name), as a background-friendly function.
+[x] Store parsed matches in the database.
 Done when: python -m backend.parse <file.dem> stores a match in under 30 s, and tests pass on the fixture replays.
+Status (2026-10-20): met, awaiting human confirmation. 14-18 s per match end to end; 58 tests pass (pytest), including 32 on the 3 fixture replays.
 Phase 2 — Analysis engine
 [ ] metrics/: souls per minute by phase, damage per minute, deaths by phase, item timings, ability usage counts, objective participation, kill participation.
 [ ] benchmarks/: compute percentiles per hero and rank bracket with filtered DuckDB queries against the remote data lake (match_player is 552 GB; never download it whole). About 6 brackets of two tiers each, with Eternus merged into the top bracket; filter to the current patch.
