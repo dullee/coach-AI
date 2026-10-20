@@ -7,7 +7,7 @@ The full plan is in [CLAUDE.md](CLAUDE.md), and the data findings are in [docs/p
 
 ```
 $env:GEMINI_API_KEY = "your-key"        # free: https://aistudio.google.com/apikey
-# or: $env:POLLINATIONS_API_KEY = "sk_..."   # Claude Haiku via Pollinations (needs Pollen credits)
+# or: $env:POLLINATIONS_API_KEY = "sk_..."   # Pollinations, default openai/gpt-6-luna (runs on quest Pollen)
 # or: $env:ANTHROPIC_API_KEY = "sk-ant-..." # Claude directly
 .venv\Scripts\python -m backend.app      # opens http://127.0.0.1:8000
 ```
@@ -58,6 +58,6 @@ Replays expire on Valve's servers after about 2–4 weeks. Keep a backup copy of
 - `backend/summarize/`: builds the MatchSummary JSON for the coaching model (data contracts in `contracts.py`)
 - `backend/coach/`: coaching model interface (Claude API and local adapters), prompt, output validation (schema, issue ids, invented numbers), cost logging
 
-Settings for the coach: `COACH_BACKEND` (claude, gemini, pollinations or local), `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `COACH_GEMINI_MODEL` (default `gemini-3.8-flash`), `POLLINATIONS_API_KEY`, `COACH_POLLINATIONS_MODEL` (default `anthropic/claude-haiku-5.5`), `COACH_CLAUDE_MODEL` (default `claude-haiku-5-5`), `COACH_LOCAL_URL` (default `http://localhost:11434/v1`), `COACH_LOCAL_MODEL`, `COACH_LOCAL_USD_PER_GPU_HOUR`.
+Settings for the coach: `COACH_BACKEND` (claude, gemini, pollinations or local), `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `COACH_GEMINI_MODEL` (default `gemini-3.8-flash`), `POLLINATIONS_API_KEY`, `COACH_POLLINATIONS_MODEL` (default `openai/gpt-6-luna`), `COACH_CLAUDE_MODEL` (default `claude-haiku-5-5`), `COACH_LOCAL_URL` (default `http://localhost:11434/v1`), `COACH_LOCAL_MODEL`, `COACH_LOCAL_USD_PER_GPU_HOUR`.
 
 Settings come from environment variables: `COACH_DATA_DIR`, `COACH_DB_URL`, `DEADLOCK_API_URL`.

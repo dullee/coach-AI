@@ -300,16 +300,37 @@ def test_pollinations_sends_schema_in_prompt_and_accepts_fenced_json(summary):
                                          "choices": [{"message": {"content": fenced}, "finish_reason": "stop"}],
                                          "usage": {"prompt_tokens": 2500, "completion_tokens": 700}})
 
-    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)))
+    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)), catalog={})
     result = coach.generate(summary)
     assert result.valid and result.cost_usd is None   # billed in Pollen, not USD
     req, body = seen[0]
     assert str(req.url) == f"{POLLINATIONS_URL}/chat/completions"
     assert req.headers["authorization"] == "Bearer sk_test"
     assert body["model"] == POLLINATIONS_DEFAULT_MODEL
-    assert "response_format" not in body and "temperature" not in body   # not supported by this model
-    assert body["reasoning_effort"] == "low"
+    assert "response_format" not in body and "temperature" not in body   # unknown model: schema in the prompt
+    assert "reasoning_effort" not in body
     assert '"next_match_focus"' in body["messages"][0]["content"]          # schema is in the system prompt
+
+
+def test_pollinations_uses_json_schema_when_the_catalog_supports_it(summary):
+    from backend.coach.local import POLLINATIONS_DEFAULT_MODEL, PollinationsCoach
+
+    bodies = []
+
+    def server(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        return httpx.Response(200, json={"model": body["model"],
+                                         "choices": [{"message": {"content": json.dumps(good_report(summary))}, "finish_reason": "stop"}],
+                                         "usage": {"prompt_tokens": 2000, "completion_tokens": 600}})
+
+    catalog = {POLLINATIONS_DEFAULT_MODEL: {"paid_only": False, "supported_parameters": ["response_format", "reasoning_effort", "max_tokens"]}}
+    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)), catalog=catalog)
+    assert coach.model == "openai/gpt-6-luna" and not coach.paid_only
+    assert coach.generate(summary).valid
+    b = bodies[0]
+    assert b["response_format"]["type"] == "json_schema" and b["reasoning_effort"] == "low" and "temperature" not in b
+    assert "matching this JSON schema" not in b["messages"][0]["content"]
 
 
 def test_empty_gateway_answer_is_reported_not_retried(summary):
@@ -323,7 +344,7 @@ def test_empty_gateway_answer_is_reported_not_retried(summary):
         return httpx.Response(200, json={"choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
                                          "usage": {"prompt_tokens": 0, "completion_tokens": 0}})
 
-    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)))
+    coach = PollinationsCoach(api_key="sk_test", http=httpx.Client(transport=httpx.MockTransport(server)), catalog={})
     with pytest.raises(RuntimeError, match="empty answer"):
         coach.generate(summary)
     assert len(calls) == 1

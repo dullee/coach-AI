@@ -84,10 +84,10 @@ async function api(path, opts) {
 async function init() {
   $("acc").value = store.get("account_id") || "";
   const b = await api("/api/backends");
-  const names = { claude: "Claude (Anthropic)", gemini: "Gemini (free tier)", pollinations: "Claude Haiku via Pollinations", local: "Local model" };
+  const names = { claude: "Claude (Anthropic)", gemini: "Gemini (free tier)", pollinations: "Pollinations", local: "Local model" };
   const missing = { claude: "no key", gemini: "no key", pollinations: "no key", local: "not running" };
   $("backend").innerHTML = ["claude", "gemini", "pollinations", "local"].map(x =>
-    `<option value="${x}" ${b.available.includes(x) ? "" : "disabled"}>${names[x]}${b.available.includes(x) ? "" : ` (${missing[x]})`}</option>`).join("");
+    `<option value="${x}" ${b.available.includes(x) ? "" : "disabled"}>${names[x]}${b.available.includes(x) ? (b.models && b.models[x] ? `: ${b.models[x]}` : "") : ` (${missing[x]})`}</option>`).join("");
   $("backend").value = store.get("backend") && b.available.includes(store.get("backend")) ? store.get("backend") : b.default;
   if ($("acc").value) loadMatches();
 }

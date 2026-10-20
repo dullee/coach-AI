@@ -186,36 +186,64 @@ class GeminiCoach(OpenAICompatCoach):
 
 
 POLLINATIONS_URL = "https://gen.pollinations.ai/v1"
-POLLINATIONS_DEFAULT_MODEL = "anthropic/claude-haiku-5.5"   # from GET /v1/models, checked 2026-10-20
+# Closest quest-Pollen match to Claude Haiku 5.5 in the live catalog (checked 2026-10-21):
+# "Efficient reasoning for focused, high-volume tasks", 0.10/0.50 Pollen per M tokens
+# (Haiku 5.5: 0.075/0.375, but paid_only), supports response_format, 99.8% healthy.
+POLLINATIONS_DEFAULT_MODEL = "openai/gpt-6-luna"
+
+_catalog: dict[str, dict] | None = None
+
+
+def pollinations_catalog(http: httpx.Client) -> dict[str, dict]:
+    """Model id/alias -> catalog entry from GET /v1/models (no key needed). Cached per process."""
+    global _catalog
+    if _catalog is None:
+        try:
+            r = http.get(f"{POLLINATIONS_URL}/models", timeout=10.0)
+            entries = r.json().get("data", []) if r.status_code == 200 else []
+        except (httpx.HTTPError, ValueError):
+            entries = []
+        _catalog = {}
+        for m in entries:
+            for name in [m.get("id"), *(m.get("aliases") or [])]:
+                if name:
+                    _catalog[name] = m
+    return _catalog
 
 
 class PollinationsCoach(OpenAICompatCoach):
-    """Claude (and other models) through Pollinations' OpenAI-compatible gateway, for prototype testing.
+    """Models through Pollinations' OpenAI-compatible gateway, for prototype testing.
 
-    Verified from https://gen.pollinations.ai/docs and the live model catalog (2026-10-20):
+    Verified from https://gen.pollinations.ai/docs and the live model catalog:
     - POST {POLLINATIONS_URL}/chat/completions, key as a Bearer token (POLLINATIONS_API_KEY,
       a secret sk_ key from enter.pollinations.ai/keys).
-    - anthropic/claude-haiku-5.5 is paid_only (spends "Pollen" credits) and does not list
-      response_format, so the schema goes into the system prompt (output_mode "none").
+    - Each model lists its supported_parameters; this adapter sends response_format (JSON
+      schema) and temperature only when the model supports them, otherwise the schema goes
+      into the system prompt. paid_only models need bought Pollen; others run on quest Pollen.
     - Prices are in Pollen, not USD, so cost_usd is left unknown here.
-    This is a third-party reseller, not Anthropic's API: use it for testing only, not for
-    Phase 3 cost numbers or Phase 4 teacher data.
+    A third-party gateway: use it for testing only, not for Phase 3 cost numbers or Phase 4
+    teacher data.
     """
 
     backend = "pollinations"
-    output_mode = "none"
-    send_temperature = False   # not in the Claude models' supported_parameters
     max_tokens = 8000
     timeout_s = 180.0
-    extra_body = {"reasoning_effort": os.environ.get("COACH_POLLINATIONS_REASONING", "low")}
 
-    def __init__(self, model: str | None = None, api_key: str | None = None, http: httpx.Client | None = None):
+    def __init__(self, model: str | None = None, api_key: str | None = None, http: httpx.Client | None = None,
+                 catalog: dict[str, dict] | None = None):
         key = api_key or os.environ.get("POLLINATIONS_API_KEY")
         if not key:
-            raise ValueError("set POLLINATIONS_API_KEY (secret key from https://enter.pollinations.ai/keys; "
-                             "Claude models need Pollen credits)")
+            raise ValueError("set POLLINATIONS_API_KEY (secret key from https://enter.pollinations.ai/keys)")
         super().__init__(model=model or os.environ.get("COACH_POLLINATIONS_MODEL", POLLINATIONS_DEFAULT_MODEL),
                          base_url=POLLINATIONS_URL, api_key=key, http=http)
+        entry = (catalog if catalog is not None else pollinations_catalog(self.http)).get(self.model, {})
+        params = set(entry.get("supported_parameters") or [])
+        self.paid_only = bool(entry.get("paid_only"))
+        # Unknown model (catalog unreachable): be conservative, schema in the prompt.
+        self.output_mode = "json_schema" if "response_format" in params else "none"
+        self.send_temperature = "temperature" in params
+        effort = os.environ.get("COACH_POLLINATIONS_REASONING", "low")
+        self.extra_body = {"reasoning_effort": effort} if "reasoning_effort" in params else {}
 
     def cost(self, elapsed_s, input_tokens, output_tokens) -> float | None:
         return None   # billed in Pollen, not USD

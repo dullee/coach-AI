@@ -51,18 +51,19 @@ def _local_server_up() -> bool:
 
 @app.get("/api/backends")
 def backends() -> dict:
-    available = []
+    available, models = [], {}
     for b in BACKENDS:
         try:
-            make_coach(b)
+            coach = make_coach(b)
         except BackendUnavailable:
             continue
         if b == "local" and not _local_server_up():
             continue
         available.append(b)
+        models[b] = coach.model
     wanted = os.environ.get("COACH_BACKEND")
     default = wanted if wanted in available else (available[0] if available else "gemini")
-    return {"available": available, "default": default}
+    return {"available": available, "default": default, "models": models}
 
 
 @app.get("/api/matches")
