@@ -1,0 +1,12 @@
+# Large/private data: replays, dumps, caches
+data/
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
