@@ -16,7 +16,9 @@ Enter your account ID (the number in your Steam friend code), click **Load my ma
 click **Get report**. Replays you downloaded in Deadlock (match history -> Download Replay) are found
 automatically and add replay-based issues; you can also upload a `.dem`. **My progress** shows recurring issues and stat trends across your
 last 10 matches; each report shows how you did on the previous report's focus, and you can rate
-each priority (useful / not useful, optional comment). Gemini's free tier can take a
+each priority (useful / not useful, optional comment). Reports also show your souls over time against the median of your
+bracket, and a map of where you died (alone or with your team when a replay is available).
+Open a report directly with `http://127.0.0.1:8000/?account=<id>&match=<match id>`. Gemini's free tier can take a
 few minutes per report.
 
 ## Setup (Windows, Python 3.12)

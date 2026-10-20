@@ -28,6 +28,8 @@ class DeathContext:
     nearest_ally: float | None   # None = no living teammate
     ult_trained: bool
     ult_ready_for_s: float | None  # None = not ready; inf = never cast yet
+    x: float = 0.0
+    y: float = 0.0
 
 
 def server_clock_offset(rd: ReplayData) -> float | None:
@@ -63,7 +65,8 @@ def death_contexts(rd: ReplayData) -> list[DeathContext]:
                 ready_for = float("inf")
             elif ready_at <= now:
                 ready_for = now - ready_at
-        out.append(DeathContext(k["game_s"], min(dists) if dists else None, bool(me_row["has_ultimate_trained"]), ready_for))
+        out.append(DeathContext(k["game_s"], min(dists) if dists else None, bool(me_row["has_ultimate_trained"]), ready_for,
+                                float(me_row["x"]), float(me_row["y"])))
     return out
 
 

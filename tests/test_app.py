@@ -46,3 +46,24 @@ def test_jobs_report_progress_and_errors():
     j = client.get(f"/api/jobs/{ok.id}").json()
     assert j["status"] == "done" and j["result"] == {"x": 5}
     assert client.get("/api/jobs/doesnotexist").status_code == 404
+
+
+def test_death_map_without_replay_uses_api_positions():
+    from backend.analysis.visuals import deaths_map
+
+    meta = {"players": [{"account_id": 5, "death_details": [
+        {"game_time_s": 120, "death_pos": {"x": 1.0, "y": 2.0, "z": 0}, "killer_pos": {"x": 3.0, "y": 4.0, "z": 0}},
+        {"game_time_s": 300, "death_pos": None}]}]}
+    d = deaths_map(meta, 5, None)
+    assert d == [{"t": 120, "x": 1.0, "y": 2.0, "alone": None, "nearest_ally": None, "killer": {"x": 3.0, "y": 4.0}}]
+
+
+def test_map_placement_matches_objective_markers():
+    """The placement formula reproduces the map asset's relative positions (values captured 2026-10-21)."""
+    from backend.analysis.visuals import MAP_OFFSET
+
+    radius = 10752
+    walkers = {  # world (x, y) of team-1 walkers in a stored replay -> relative (left, top) from /v1/assets/map
+        (-5416.0, 5024.0): (0.1981, 0.2164), (1288.0, 3472.0): (0.5099, 0.2885), (6443.9375, 4776.375): (0.7497, 0.2279)}
+    for (x, y), (left, top) in walkers.items():
+        assert abs(MAP_OFFSET + x / (2 * radius) - left) < 0.001 and abs(MAP_OFFSET - y / (2 * radius) - top) < 0.001

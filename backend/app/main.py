@@ -256,3 +256,27 @@ def followup_view(account_id: int, match_id: int) -> dict:
     engine, static, bench = _analysis_deps()
     with DeadlockApiClient() as client:
         return {"follow_up": follow_up(client, engine, static, bench, account_id, match_id)}
+
+
+@app.get("/api/visuals")
+def visuals(account_id: int, match_id: int) -> dict:
+    """Chart data for a report: souls over time vs the bracket, and a death map."""
+    from backend.analysis.progress import analyse_match
+    from backend.analysis.visuals import deaths_map, map_info, souls_chart
+    from backend.ingest import NotFound, RateLimited
+    from backend.summarize.sources import match_data
+
+    engine, static, bench = _analysis_deps()
+    with DeadlockApiClient() as client:
+        try:
+            meta, replay = match_data(client, match_id, account_id, engine)
+        except (NotFound, RateLimited) as e:
+            raise HTTPException(404, f"no data for match {match_id}") from e
+        badge = client.player_rank(account_id).badge or None
+        a = analyse_match(client, engine, static, bench, account_id, match_id, badge)
+        if a is None:
+            raise HTTPException(404, f"account {account_id} not in match {match_id}")
+        info = a["info"]
+        return {"souls": souls_chart(meta, account_id, bench, static, info["hero_id"], info["rank_bracket"]),
+                "deaths": deaths_map(meta, account_id, replay), "has_replay": replay is not None,
+                "map": map_info(client), "hero": info["hero"], "rank_bracket": info["rank_bracket"]}

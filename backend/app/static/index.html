@@ -57,6 +57,22 @@
   .dots span { display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:3px; background:var(--chip); }
   .dots span.hit { background:var(--bad); }
   .scroll { overflow-x:auto; }
+  .viz { --series-you:#3987e5; --series-alone:#d95926; --ref-line:#9aa3b2; --band:#2b3140; --grid:#262b35; --unknown:#8a93a3; }
+  .viz-grid { display:grid; grid-template-columns: 3fr 2fr; gap:16px; margin:16px 0; align-items:start; }
+  @media (max-width: 1100px) { .viz-grid { grid-template-columns: 1fr; } }
+  .fig { border:1px solid var(--line); border-radius:10px; padding:12px; position:relative; }
+  .fig h3 { margin:0 0 2px; font-size:14px; }
+  .fig .sub { color:var(--muted); font-size:12px; margin-bottom:6px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin:4px 0 6px; }
+  .legend i { display:inline-block; width:14px; height:3px; vertical-align:middle; margin-right:5px; border-radius:2px; }
+  .legend i.dash { background:repeating-linear-gradient(90deg, var(--ref-line) 0 4px, transparent 4px 7px); }
+  .legend i.band { height:10px; background:var(--band); }
+  .legend i.dot { width:10px; height:10px; border-radius:50%; }
+  .legend i.dia { width:9px; height:9px; transform:rotate(45deg); border-radius:1px; }
+  .tip { position:absolute; pointer-events:none; background:#0f1115; border:1px solid var(--line); border-radius:8px;
+         padding:6px 9px; font-size:12px; line-height:1.45; white-space:nowrap; display:none; z-index:5; }
+  .tip b { color:var(--text); }
+  svg text { fill:var(--muted); font-size:11px; }
   pre { white-space:pre-wrap; font-size:12px; color:var(--muted); max-height:400px; overflow:auto; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 </style>
@@ -108,7 +124,10 @@ async function init() {
   $("backend").innerHTML = ["claude", "gemini", "pollinations", "local"].map(x =>
     `<option value="${x}" ${b.available.includes(x) ? "" : "disabled"}>${names[x]}${b.available.includes(x) ? (b.models && b.models[x] ? `: ${b.models[x]}` : "") : ` (${missing[x]})`}</option>`).join("");
   $("backend").value = store.get("backend") && b.available.includes(store.get("backend")) ? store.get("backend") : b.default;
+  const q = new URLSearchParams(location.search);   // ?account=...&match=... opens a report directly
+  if (q.get("account")) $("acc").value = q.get("account");
   if ($("acc").value) loadMatches();
+  if (q.get("match")) showLatest(Number(q.get("match")));
 }
 
 async function loadMatches() {
@@ -194,6 +213,7 @@ function render(res) {
       ${feedbackBar(res, n)}</div>`;
   });
   if (r.strengths.length) html += `<h3 style="font-size:15px">Strengths</h3><ul>${r.strengths.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  html += `<div id="visuals" class="viz"></div>`;
   html += `<div class="focus"><span class="label">Next match</span>${esc(r.next_match_focus)}</div>`;
   if (!res.valid) html += `<p class="warn">This report failed validation: ${esc((res.problems || []).join("; "))}</p>`;
   const cost = res.cost_usd == null ? "unknown" : "$" + Number(res.cost_usd).toFixed(4);
@@ -201,6 +221,126 @@ function render(res) {
     <details><summary>What the model saw (MatchSummary)</summary><pre>${esc(JSON.stringify(s, null, 1))}</pre></details>`;
   $("out").innerHTML = html;
   loadFollowup(s.match_id);
+  loadVisuals(s.match_id);
+}
+
+
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const kfmt = (v) => v >= 1000 ? (Math.round(v / 100) / 10) + "k" : String(Math.round(v));
+const lerp = (pts, x, key) => {          // linear interpolation over sorted {x, [key]} points
+  if (!pts.length || x < pts[0].x || x > pts[pts.length - 1].x) return null;
+  for (let i = 1; i < pts.length; i++) if (x <= pts[i].x) {
+    const a = pts[i - 1], b = pts[i], f = b.x === a.x ? 0 : (x - a.x) / (b.x - a.x);
+    return a[key] + (b[key] - a[key]) * f;
+  }
+  return pts[pts.length - 1][key];
+};
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); return Math.ceil(v / p) * p; }
+
+async function loadVisuals(matchId) {
+  try {
+    const v = await api(`/api/visuals?account_id=${$("acc").value.trim()}&match_id=${matchId}`);
+    if (!$("visuals")) return;
+    $("visuals").innerHTML = `<div class="viz-grid"><div class="fig" id="soulsFig"></div><div class="fig" id="mapFig"></div></div>`;
+    soulsChart($("soulsFig"), v);
+    deathMap($("mapFig"), v);
+  } catch (e) { if ($("visuals")) $("visuals").innerHTML = `<p class="muted" style="font-size:12px">Charts unavailable: ${esc(e.message)}</p>`; }
+}
+
+function soulsChart(el, v) {
+  const s = v.souls, you = s.player.map(p => ({ x: p.t, y: p.souls }));
+  const dur = s.duration_s;
+  const band = s.bracket.filter(p => p.minute * 60 <= dur + 30).map(p => ({ x: p.minute * 60, lo: p.p25, mid: p.p50, hi: p.p75 }));
+  const W = 640, H = 270, m = { l: 46, r: 64, t: 12, b: 28 };
+  const maxY = niceMax(Math.max(1, ...you.map(p => p.y), ...band.map(p => p.hi)));
+  const X = (x) => m.l + (x / dur) * (W - m.l - m.r), Y = (y) => H - m.b - (y / maxY) * (H - m.t - m.b);
+  const line = (pts, key) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p[key]).toFixed(1)}`).join("");
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Souls over time">`;
+  for (let i = 0; i <= 4; i++) {           // recessive horizontal grid + y labels
+    const yv = maxY * i / 4, y = Y(yv);
+    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>
+            <text x="${m.l - 6}" y="${y + 4}" text-anchor="end">${kfmt(yv)}</text>`;
+  }
+  for (let t = 0; t <= dur; t += 300) svg += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle">${t / 60}:00</text>`;
+  if (band.length > 1) {
+    svg += `<path d="${line(band, "hi")}L${band.slice().reverse().map(p => `${X(p.x).toFixed(1)},${Y(p.lo).toFixed(1)}`).join("L")}Z" fill="var(--band)" stroke="none"/>`;
+    svg += `<path d="${line(band, "mid")}" fill="none" stroke="var(--ref-line)" stroke-width="2" stroke-dasharray="5 4"/>`;
+    const lastB = band[band.length - 1];
+    svg += `<text x="${X(lastB.x) + 6}" y="${Y(lastB.mid) + 4}">Median</text>`;
+  }
+  svg += `<path d="${line(you, "y")}" fill="none" stroke="var(--series-you)" stroke-width="2" stroke-linejoin="round"/>`;
+  svg += you.map(p => `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="4" fill="var(--series-you)" stroke="var(--panel)" stroke-width="2"/>`).join("");
+  const lastY = you[you.length - 1];
+  if (lastY) svg += `<text x="${X(lastY.x) + 6}" y="${Y(lastY.y) - 6}" style="fill:var(--text)">You</text>`;
+  svg += `<line id="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
+          <rect id="hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
+  el.innerHTML = `<h3>Souls over time</h3>
+    <div class="sub">Your net worth vs ${esc(s.bracket_scope || "the bracket")} (dashed: median; shaded: middle half of players)</div>
+    <div class="legend"><span><i style="background:var(--series-you)"></i>You</span>
+      ${band.length ? `<span><i class="dash"></i>Median</span><span><i class="band"></i>25th-75th percentile</span>` : `<span>No benchmark curve for this hero/bracket</span>`}</div>
+    ${svg}<div class="tip" id="soulsTip"></div>
+    <details><summary>Show as table</summary><table class="trend"><tr><th>Time</th><th>You</th><th>Median</th><th>25th-75th</th></tr>${
+      you.map(p => `<tr><td>${mmss(p.x)}</td><td>${kfmt(p.y)}</td><td>${lerp(band, p.x, "mid") == null ? "-" : kfmt(lerp(band, p.x, "mid"))}</td>
+        <td>${lerp(band, p.x, "lo") == null ? "-" : kfmt(lerp(band, p.x, "lo")) + "-" + kfmt(lerp(band, p.x, "hi"))}</td></tr>`).join("")}</table></details>`;
+  const svgEl = el.querySelector("svg"), tip = el.querySelector("#soulsTip"), xh = el.querySelector("#xh");
+  el.querySelector("#hit").addEventListener("mousemove", (ev) => {
+    const r = svgEl.getBoundingClientRect(), sx = (ev.clientX - r.left) * (W / r.width);
+    const tSec = Math.max(0, Math.min(dur, ((sx - m.l) / (W - m.l - m.r)) * dur));
+    xh.setAttribute("x1", X(tSec)); xh.setAttribute("x2", X(tSec)); xh.setAttribute("visibility", "visible");
+    const yv = lerp(you, tSec, "y"), md = lerp(band, tSec, "mid"), lo = lerp(band, tSec, "lo"), hi = lerp(band, tSec, "hi");
+    tip.innerHTML = `<b>${mmss(tSec)}</b><br>You: ${yv == null ? "-" : kfmt(yv)} souls` +
+      (md == null ? "" : `<br>Median: ${kfmt(md)}<br>Middle half: ${kfmt(lo)}-${kfmt(hi)}`);
+    tip.style.display = "block";
+    const fx = ev.clientX - el.getBoundingClientRect().left, fy = ev.clientY - el.getBoundingClientRect().top;
+    tip.style.left = (fx + 14 + 160 > el.clientWidth ? fx - 170 : fx + 14) + "px"; tip.style.top = (fy - 10) + "px";
+  });
+  el.querySelector("#hit").addEventListener("mouseleave", () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); });
+}
+
+function deathMap(el, v) {
+  const S = 360, deaths = v.deaths, mp = v.map;
+  if (!mp) { el.innerHTML = `<h3>Where you died</h3><p class="muted">Map unavailable.</p>`; return; }
+  const P = (x, y) => [(mp.offset + x / (2 * mp.radius)) * S, (mp.offset - y / (2 * mp.radius)) * S];
+  const known = deaths.some(d => d.alone !== null);
+  let svg = `<svg viewBox="0 0 ${S} ${S}" width="100%" style="max-width:${S}px;display:block;margin:auto" role="img" aria-label="Death map">
+    <image href="${esc(mp.image)}" x="0" y="0" width="${S}" height="${S}" style="filter:invert(0.78)"/>`;
+  deaths.forEach((d, i) => {
+    const [x, y] = P(d.x, d.y);
+    if (d.killer) {
+      const [kx, ky] = P(d.killer.x, d.killer.y);
+      svg += `<line x1="${kx}" y1="${ky}" x2="${x}" y2="${y}" stroke="var(--muted)" stroke-width="1" opacity="0.7"/>
+              <circle cx="${kx}" cy="${ky}" r="3" fill="none" stroke="var(--muted)" stroke-width="1.5"/>`;
+    }
+    const col = d.alone === true ? "var(--series-alone)" : d.alone === false ? "var(--series-you)" : "var(--unknown)";
+    svg += d.alone === true
+      ? `<rect data-i="${i}" x="${x - 5}" y="${y - 5}" width="10" height="10" transform="rotate(45 ${x} ${y})" fill="${col}" stroke="var(--panel)" stroke-width="2"/>`
+      : `<circle data-i="${i}" cx="${x}" cy="${y}" r="5.5" fill="${col}" stroke="var(--panel)" stroke-width="2"/>`;
+    svg += `<circle data-i="${i}" cx="${x}" cy="${y}" r="11" fill="transparent"/>`;   // bigger hit target
+  });
+  svg += `</svg>`;
+  const nAlone = deaths.filter(d => d.alone === true).length, nTeam = deaths.filter(d => d.alone === false).length;
+  const describe = (d) => d.alone === null ? "no replay: teammate positions unknown"
+    : d.alone ? (d.nearest_ally == null ? "alone (no living teammate)" : `alone (nearest teammate ${d.nearest_ally} units)`)
+    : `with team (nearest teammate ${d.nearest_ally} units)`;
+  el.innerHTML = `<h3>Where you died</h3>
+    <div class="sub">${deaths.length} deaths${known ? "" : " · download the replay to see whether you were alone"}. Thin line: where the killer was.</div>
+    <div class="legend">${known ? `<span><i class="dia" style="background:var(--series-alone)"></i>Alone (${nAlone})</span>
+      <span><i class="dot" style="background:var(--series-you)"></i>With team (${nTeam})</span>` : `<span><i class="dot" style="background:var(--unknown)"></i>Death</span>`}
+      <span><i class="dot" style="background:transparent;border:1.5px solid var(--muted)"></i>Killer</span></div>
+    ${svg}<div class="tip" id="mapTip"></div>
+    <details><summary>Show as list</summary><ul style="font-size:13px;margin:6px 0 0 18px;padding:0">${
+      deaths.map(d => `<li>${mmss(d.t)}: ${esc(describe(d))}</li>`).join("")}</ul></details>`;
+  const tip = el.querySelector("#mapTip");
+  el.querySelectorAll("[data-i]").forEach(node => {
+    node.addEventListener("mouseenter", (ev) => {
+      const d = deaths[Number(node.dataset.i)];
+      tip.innerHTML = `<b>Death at ${mmss(d.t)}</b><br>${esc(describe(d))}`;
+      tip.style.display = "block";
+      const r = el.getBoundingClientRect();
+      tip.style.left = Math.min(ev.clientX - r.left + 12, el.clientWidth - 230) + "px"; tip.style.top = (ev.clientY - r.top - 10) + "px";
+    });
+    node.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  });
 }
 
 function feedbackBar(res, n) {

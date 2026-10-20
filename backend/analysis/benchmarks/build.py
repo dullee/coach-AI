@@ -149,6 +149,35 @@ def compute_item_benchmarks(frame: pl.DataFrame, static: StaticData) -> pl.DataF
     return out.with_columns((pl.col("n") / pl.col("games")).alias("buy_rate"))
 
 
+# Minute marks for the net-worth curve. Stats snapshots come every 3 min until 15:00, then every
+# 5 min, so these marks sit on or close to real snapshots (value_at interpolates between them).
+CURVE_MINUTES = (3, 6, 9, 12, 15, 18, 20, 25, 30, 35, 40)
+
+
+def compute_curve_benchmarks(frame: pl.DataFrame) -> pl.DataFrame:
+    """Net worth (souls) at each CURVE_MINUTES mark: p25/p50/p75 per (hero, bracket), hero and bracket."""
+    from backend.analysis.metrics.base import value_at
+
+    parts = []
+    for m in CURVE_MINUTES:
+        v = value_at(frame, "st_t", "st_nw", m * 60)
+        parts.append(frame.select("hero_id", "bracket").with_columns(
+            pl.lit(m, dtype=pl.Int16).alias("minute"),
+            pl.when(frame["duration_s"] >= m * 60).then(v).otherwise(None).alias("value")))
+    long = pl.concat(parts).drop_nulls("value")
+
+    def agg(df, by):
+        return df.group_by(*by, "minute").agg(
+            pl.len().alias("n"), pl.col("value").quantile(0.25).alias("p25"),
+            pl.col("value").median().alias("p50"), pl.col("value").quantile(0.75).alias("p75"))
+
+    hb = agg(long.drop_nulls("bracket"), ["hero_id", "bracket"])
+    h = agg(long, ["hero_id"]).with_columns(pl.lit(ALL).alias("bracket"))
+    b = agg(long.drop_nulls("bracket"), ["bracket"]).with_columns(pl.lit(0, dtype=pl.Int32).alias("hero_id"))
+    cols = ["hero_id", "bracket", "minute", "n", "p25", "p50", "p75"]
+    return pl.concat([d.select(cols) for d in (hb, h, b)], how="vertical_relaxed").sort(cols[:3])
+
+
 def build(static: StaticData, patch_start_iso: str, max_files: int = 5, out_root: Path | None = None) -> Path:
     since = datetime.fromisoformat(patch_start_iso.replace("Z", "+00:00")).timestamp()
     paths = fetch_extracts(since, max_files)
@@ -160,6 +189,7 @@ def build(static: StaticData, patch_start_iso: str, max_files: int = 5, out_root
     out.mkdir(parents=True, exist_ok=True)
     compute_metric_benchmarks(frame, static).write_parquet(out / "metrics.parquet")
     compute_item_benchmarks(frame, static).write_parquet(out / "items.parquet")
+    compute_curve_benchmarks(frame).write_parquet(out / "curves.parquet")
     meta = {
         "patch_start": patch_start_iso, "client_version": static.client_version,
         "files": [p.name for p in paths], "player_rows": frame.height,

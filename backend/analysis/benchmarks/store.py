@@ -52,8 +52,9 @@ class ItemTiming:
 
 
 class Benchmarks:
-    def __init__(self, metrics: pl.DataFrame, items: pl.DataFrame, meta: dict):
+    def __init__(self, metrics: pl.DataFrame, items: pl.DataFrame, meta: dict, curves: pl.DataFrame | None = None):
         self.meta = meta
+        self._curves = curves
         self._metrics = {
             (r["metric"], r["hero_id"], r["bracket"]): r for r in metrics.to_dicts()
         }
@@ -68,8 +69,9 @@ class Benchmarks:
                 raise FileNotFoundError(f"no benchmarks in {root}; run: python -m backend.analysis.benchmarks build")
             directory = dirs[-1]
         directory = Path(directory)
+        curves = pl.read_parquet(directory / "curves.parquet") if (directory / "curves.parquet").exists() else None
         return cls(pl.read_parquet(directory / "metrics.parquet"), pl.read_parquet(directory / "items.parquet"),
-                   json.loads((directory / "meta.json").read_text(encoding="utf-8")))
+                   json.loads((directory / "meta.json").read_text(encoding="utf-8")), curves)
 
     def distribution(self, metric: str, hero_id: int, bracket: str | None) -> Distribution | None:
         """Most specific distribution with enough samples: hero+bracket, then hero, then bracket."""
@@ -87,6 +89,19 @@ class Benchmarks:
         r = self._metrics.get((metric, 0, bracket))
         if r and r["n"] >= MIN_MATCHES:
             return Distribution(metric, 0, bracket, r["n"], {q: r[c] for q, c in zip(QUANTILES, QCOLS)})
+        return None
+
+    def souls_curve(self, hero_id: int, bracket: str | None, min_n: int = 100) -> dict | None:
+        """Net-worth curve (minute -> p25/p50/p75) from the most specific scope with enough
+        matches at the first mark: hero+bracket, then hero overall, then all heroes in the bracket."""
+        if self._curves is None:
+            return None
+        for hero, b in ((hero_id, bracket), (hero_id, ALL), (0, bracket)):
+            if b is None:
+                continue
+            rows = self._curves.filter((pl.col("hero_id") == hero) & (pl.col("bracket") == b) & (pl.col("n") >= min_n)).sort("minute")
+            if rows.height and rows["minute"][0] == rows["minute"].min() and rows.height >= 3:
+                return {"hero_id": hero, "bracket": b, "points": rows.select("minute", "n", "p25", "p50", "p75").to_dicts()}
         return None
 
     def item_timing(self, hero_id: int, bracket: str | None, item_id: int) -> ItemTiming | None:

@@ -70,3 +70,20 @@ def test_pick_files_and_cache_names():
     assert [f["key"].split("/")[-2:] for f in picked] == [["part-2", "A.parquet"], ["delta", "B.parquet"]]
     # Same basename in two partitions must not collide in the local cache.
     assert cache_name(files[0]["key"]) != cache_name(files[1]["key"])
+
+
+def test_souls_curve_benchmarks(static, lake_frame):
+    from backend.analysis.benchmarks.build import CURVE_MINUTES, compute_curve_benchmarks
+
+    curves = compute_curve_benchmarks(lake_frame)
+    allb = curves.filter((pl.col("hero_id") == 0)).sort("bracket", "minute")
+    assert set(allb["minute"].unique()) == set(CURVE_MINUTES)
+    for _, g in allb.group_by("bracket"):
+        p50 = g.sort("minute")["p50"].to_list()
+        assert p50 == sorted(p50)                      # net worth only grows
+        assert (g["p25"] <= g["p50"]).all() and (g["p50"] <= g["p75"]).all()
+    b = Benchmarks(pl.DataFrame(schema={"metric": pl.String}), pl.DataFrame(schema={"hero_id": pl.Int32}), {}, curves)
+    bracket = brackets(static)[0].id
+    c = b.souls_curve(999, bracket, min_n=10)          # unknown hero -> all heroes in the bracket
+    assert c["hero_id"] == 0 and c["bracket"] == bracket and c["points"][0]["minute"] == CURVE_MINUTES[0]
+    assert Benchmarks(pl.DataFrame(schema={"metric": pl.String}), pl.DataFrame(schema={"hero_id": pl.Int32}), {}).souls_curve(1, bracket) is None
