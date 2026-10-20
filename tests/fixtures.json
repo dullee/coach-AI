@@ -1,0 +1,23 @@
+{
+  "note": "Real replays used as test fixtures. Valve deletes replays after ~2-4 weeks, so keep a backup copy of data/demos/ (see scripts/fetch_fixtures.py).",
+  "replays": [
+    {
+      "match_id": 120849236,
+      "file": "120849236_1473308675.dem",
+      "bytes": 371716321,
+      "sha256": "e7a5e5b996f947f960da63a6bbcb711d52edbfdebd1a0817b82973e1e1918c32"
+    },
+    {
+      "match_id": 120849259,
+      "file": "120849259_1991152684.dem",
+      "bytes": 287560715,
+      "sha256": "bd9945c6437552916925bf2b620d911173cfa87fc597ce30872625f48bb0e06f"
+    },
+    {
+      "match_id": 120851860,
+      "file": "120851860_329453757.dem",
+      "bytes": 298217529,
+      "sha256": "abe6049fdc51c98bbd72d6d86a1372486b123df6415446d90816dd5def5dd321"
+    }
+  ]
+}

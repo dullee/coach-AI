@@ -1,5 +1,5 @@
 # Large/private data: replays, dumps, caches
-data/
+/data/
 
 # Secrets
 .env
