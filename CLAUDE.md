@@ -59,7 +59,7 @@ Fine-tuned 7–8B open instruct model (default pick: Qwen3-8B, Apache 2.0), serv
 Built in Phase 4
 Coaching model (baseline / premium)
 Claude API
-Small model for baseline, larger model for premium deep review (claude-haiku-5-5 / claude-opus-5-5). For testing without credits: Gemini API free tier via its OpenAI-compatible endpoint (--backend gemini; Google may use free-tier inputs to improve its products, so only send MatchSummaries, never personal data). Also for prototype testing only: Pollinations (gen.pollinations.ai, a third-party gateway; --backend pollinations, default anthropic/claude-haiku-5.5, paid in Pollen credits). Not Anthropic's API, so its results don't count for Phase 3 cost or Phase 4 teacher data. Also for prototype testing only: Pollinations (gen.pollinations.ai, a third-party gateway; --backend pollinations, default anthropic/claude-haiku-5.5, paid in Pollen credits). Not Anthropic's API, so its results don't count for Phase 3 cost or Phase 4 teacher data
+Small model for baseline, larger model for premium deep review (claude-haiku-5-5 / claude-opus-5-5). For testing without credits: Gemini API free tier via its OpenAI-compatible endpoint (--backend gemini; Google may use free-tier inputs to improve its products, so only send MatchSummaries, never personal data). Also for prototype testing only: Pollinations (gen.pollinations.ai, a third-party gateway; --backend pollinations, default anthropic/claude-haiku-5.5, paid in Pollen credits). Not Anthropic's API, so its results don't count for Phase 3 cost or Phase 4 teacher data
 Fine-tuning
 Unsloth + QLoRA on Kaggle (~30 GPU-hours/week); local RTX 4060 8 GB as a backup for short runs
 Hugging Face datasets format
