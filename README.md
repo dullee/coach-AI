@@ -5,10 +5,11 @@ The full plan is in [CLAUDE.md](CLAUDE.md), and the data findings are in [docs/p
 
 ## Try the prototype
 
+Copy `.env.example` to `.env` and fill in one key (`.env` is gitignored and read automatically):
+`GEMINI_API_KEY` (free: https://aistudio.google.com/apikey), `POLLINATIONS_API_KEY` (default model
+openai/gpt-6-luna, runs on quest Pollen) or `ANTHROPIC_API_KEY` (Claude directly). Keys set in the
+terminal (`$env:GEMINI_API_KEY = "..."`) still work and take priority.
 ```
-$env:GEMINI_API_KEY = "your-key"        # free: https://aistudio.google.com/apikey
-# or: $env:POLLINATIONS_API_KEY = "sk_..."   # Pollinations, default openai/gpt-6-luna (runs on quest Pollen)
-# or: $env:ANTHROPIC_API_KEY = "sk-ant-..." # Claude directly
 .venv\Scripts\python -m backend.app      # opens http://127.0.0.1:8000
 ```
 
@@ -43,8 +44,8 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m pytest                            # should pass
 .venv\Scripts\python -m backend.app
 ```
-API keys are not in the bundle or the repo: set them again in the terminal
-(`$env:POLLINATIONS_API_KEY = "sk_..."`, etc.). Training runs on Kaggle, so it doesn't matter
+API keys are not in the bundle or the repo: copy `.env.example` to `.env` on the new PC and fill
+them in again. Training runs on Kaggle, so it doesn't matter
 which PC prepares the dataset.
 
 ## Setup (Windows, Python 3.12)

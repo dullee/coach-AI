@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from backend import config
-from backend.static_data import StaticData
+os.environ["COACH_NO_DOTENV"] = "1"  # tests must not pick up the developer's .env (set before backend is imported)
+
+from backend import config  # noqa: E402
+from backend.static_data import StaticData  # noqa: E402
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = json.loads((TESTS / "fixtures.json").read_text(encoding="utf-8"))["replays"]
