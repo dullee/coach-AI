@@ -88,3 +88,12 @@ def test_meta_records_fetch_time(tmp_path):
     path = refresh(client, tmp_path / "s")
     meta = json.loads((path / "meta.json").read_text())
     assert meta["client_version"] == 6796 and abs(meta["fetched_at"] - time.time()) < 60
+
+
+def test_hero_minimap_icon_from_assets():
+    from backend.static_data.loader import _hero
+
+    base = {"id": 1, "name": "X", "class_name": "hero_x", "player_selectable": True}
+    assert _hero({**base, "images": {"minimap_image": "a.png", "minimap_image_webp": "a.webp"}}).minimap_image == "a.webp"
+    assert _hero({**base, "images": {"minimap_image": "a.png"}}).minimap_image == "a.png"
+    assert _hero(base).minimap_image is None

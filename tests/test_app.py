@@ -91,3 +91,8 @@ def test_data_bundle_round_trip(tmp_path):
     got = sorted(p.relative_to(dst).as_posix() for p in dst.rglob("*") if p.is_file())
     assert got == ["coach.db", "demos/1.dem", "ml/teacher/t.jsonl"]
     assert (dst / "demos" / "1.dem").read_bytes() == (src / "demos" / "1.dem").read_bytes()
+
+
+def test_death_replays_need_a_parsed_replay():
+    r = client.get("/api/death_replays", params={"account_id": 1, "match_id": 1})
+    assert r.status_code == 404 and "replay" in r.json()["detail"]

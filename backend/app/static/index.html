@@ -73,6 +73,26 @@
          padding:6px 9px; font-size:12px; line-height:1.45; white-space:nowrap; display:none; z-index:5; }
   .tip b { color:var(--text); }
   svg text { fill:var(--muted); font-size:11px; }
+  /* death replays: you / teammates / enemies (validated on the panel surface; enemies also differ by shape) */
+  .viz { --rp-you:#3987e5; --rp-ally:#199e70; --rp-enemy:#d95926; }
+  .rp-deaths { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 10px; }
+  .rp-deaths button { padding:3px 9px; font-size:12px; }
+  .rp-deaths button.on { border-color:var(--accent); color:var(--accent); }
+  .rp-grid { display:grid; grid-template-columns:minmax(0, 3fr) minmax(220px, 2fr); gap:14px; align-items:start; }
+  @media (max-width: 1100px) { .rp-grid { grid-template-columns:1fr; } }
+  .rp-map { position:relative; }
+  .rp-map svg { display:block; width:100%; max-width:560px; margin:auto; border-radius:8px; background:#0c0e12; }
+  .rp-controls { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  .rp-controls input[type=range] { flex:1; min-width:140px; accent-color:var(--accent); padding:0; }
+  .rp-controls .time { font-variant-numeric:tabular-nums; font-size:13px; min-width:110px; }
+  .rp-facts { font-size:13px; margin:0 0 8px 16px; padding:0; }
+  .rp-facts li { margin:2px 0; }
+  .rp-log { max-height:420px; overflow:auto; font-size:12px; border-top:1px solid var(--line); padding-top:6px; }
+  .rp-log div { padding:3px 6px; border-radius:6px; color:var(--muted); cursor:pointer; display:flex; gap:8px; }
+  .rp-log div .t { font-variant-numeric:tabular-nums; min-width:44px; text-align:right; }
+  .rp-log div.past { color:var(--text); }
+  .rp-log div.now { background:var(--chip); }
+  .rp-log i { display:inline-block; width:8px; height:8px; margin-top:5px; flex:none; }
   pre { white-space:pre-wrap; font-size:12px; color:var(--muted); max-height:400px; overflow:auto; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 </style>
@@ -244,6 +264,12 @@ async function loadVisuals(matchId) {
     $("visuals").innerHTML = `<div class="viz-grid"><div class="fig" id="soulsFig"></div><div class="fig" id="mapFig"></div></div>`;
     soulsChart($("soulsFig"), v);
     deathMap($("mapFig"), v);
+    if (v.has_replay && v.deaths.length) {
+      $("visuals").insertAdjacentHTML("beforeend", `<div class="fig" id="replayFig"><h3>Death replays</h3><div class="sub">Loading...</div></div>`);
+      api(`/api/death_replays?account_id=${$("acc").value.trim()}&match_id=${matchId}`)
+        .then(d => deathReplays($("replayFig"), d))
+        .catch(e => { if ($("replayFig")) $("replayFig").innerHTML = `<h3>Death replays</h3><p class="muted">${esc(e.message)}</p>`; });
+    }
   } catch (e) { if ($("visuals")) $("visuals").innerHTML = `<p class="muted" style="font-size:12px">Charts unavailable: ${esc(e.message)}</p>`; }
 }
 
@@ -340,7 +366,262 @@ function deathMap(el, v) {
       tip.style.left = Math.min(ev.clientX - r.left + 12, el.clientWidth - 230) + "px"; tip.style.top = (ev.clientY - r.top - 10) + "px";
     });
     node.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    node.addEventListener("click", () => { if (window.selectReplayDeath) window.selectReplayDeath(deaths[Number(node.dataset.i)].t); });
+    node.style.cursor = "pointer";
   });
+}
+
+// ---- death replays: the 15 s before each death as a top-down animation ------------------------
+function deathReplays(el, data) {
+  const mp = data.map, S = 1000, NS = "http://www.w3.org/2000/svg";
+  if (!mp) { el.innerHTML = `<h3>Death replays</h3><p class="muted">Map unavailable.</p>`; return; }
+  if (!data.deaths.length) { el.innerHTML = `<h3>Death replays</h3><p class="muted">No deaths in this match.</p>`; return; }
+  const P = (x, y) => [(mp.offset + x / (2 * mp.radius)) * S, (mp.offset - y / (2 * mp.radius)) * S];
+  const W2P = (u) => u / (2 * mp.radius) * S;          // world distance -> map units
+  const who = Object.fromEntries(data.players.map(p => [p.slot, p]));
+  const name = (s) => s == null ? "non-hero (troopers, towers)" : (who[s].role === "you" ? "You" : who[s].hero);
+  const colorOf = (s) => `var(--rp-${who[s].role})`;
+  const [T0, T1] = data.window, fps = data.fps;
+  const sec = (t) => (t < 0 ? "−" : "+") + Math.abs(t).toFixed(1) + " s";
+  const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let d = null, cur = T0, playing = false, speed = 1, last = 0, raf = 0, nodes = {}, vb = null, log = [];
+
+  el.innerHTML = `<h3>Death replays</h3>
+    <div class="sub">The ${-T0} seconds before each death, rebuilt from the replay. Every enemy is shown, including any you
+      couldn't see at the time (the replay doesn't record what was visible to you).</div>
+    <div class="rp-deaths" id="rpDeaths">${data.deaths.map((x, i) => `<button data-i="${i}">${x.n} · ${mmss(x.t)}${x.facts.alone ? " · alone" : ""}</button>`).join("")}</div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--rp-you)"></i>You</span>
+      <span><i class="dot" style="background:var(--rp-ally)"></i>Teammates</span>
+      <span><i class="dot" style="background:var(--rp-enemy);border-radius:2px"></i>Enemies (square)</span>
+      <span><i style="background:var(--rp-enemy)"></i>Hit on you</span>
+      <span><i class="dot" style="background:rgba(57,135,229,.35);border-radius:0 50% 50% 50%;transform:rotate(-45deg)"></i>Where your camera faced</span>
+      <span>&#9650; teammate off screen</span></div>
+    <div class="rp-grid">
+      <div class="rp-map"><svg id="rpSvg" role="img" aria-label="Top-down replay of the seconds before the death"></svg>
+        <div class="rp-controls">
+          <button id="rpPlay" aria-label="Play">&#9654; Play</button>
+          <input type="range" id="rpSlider" min="${T0}" max="${T1}" step="0.05" value="${T0}" aria-label="Time before death">
+          <span class="time" id="rpTime"></span>
+          <select id="rpSpeed" aria-label="Speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select>
+        </div></div>
+      <div><ul class="rp-facts" id="rpFacts"></ul><div class="rp-log" id="rpLog"></div></div>
+    </div>`;
+  const svg = el.querySelector("#rpSvg");
+  const mk = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]); if (parent) parent.appendChild(n); return n; };
+
+  function at(arr, f) {                     // value at fractional frame f (linear between frames)
+    const i = Math.floor(f), j = Math.min(i + 1, arr.length - 1), a = arr[Math.max(0, i)], b = arr[j];
+    if (a == null) return b == null || f - i < 0.5 ? null : b;
+    if (b == null) return a;
+    return a + (b - a) * (f - i);
+  }
+  const frameOf = (t) => Math.max(0, Math.min((T1 - T0) * fps, (t - T0) * fps));
+
+  function groupEvents(x) {                  // merge repeated small hits from the same source (1 s gap)
+    const out = [], add = (kind, t, s, what, dmg) => {
+      const g = out[out.length - 1];
+      if (g && g.kind === kind && g.s === s && g.what === what && t - g.end <= 1) { g.end = t; g.n++; g.dmg += dmg; return; }
+      out.push({ kind, t, end: t, s, what, n: 1, dmg });
+    };
+    const ev = [...x.taken.map(h => ["taken", h.t, h.from, h.what, h.dmg]), ...x.dealt.map(h => ["dealt", h.t, h.to, h.what, h.dmg])]
+      .sort((a, b) => a[1] - b[1]);
+    ev.forEach(e => add(...e));
+    x.kills.forEach(k => out.push({ kind: "kill", t: k.t, end: k.t, s: k.victim, killer: k.killer }));
+    return out.sort((a, b) => a.t - b.t);
+  }
+
+  function factsHtml(x) {
+    const f = x.facts, top = f.damage_by_source.slice(0, 3).map(s => `${esc(name(s.from))} ${s.dmg.toLocaleString()}`).join(", ");
+    const items = [];
+    items.push(`Killed by <b>${esc(name(x.killer))}</b>${x.assisters.length ? `, assisted by ${x.assisters.map(s => esc(name(s))).join(", ")}` : ""}.`);
+    items.push(`Took ${f.damage_taken.toLocaleString()} damage in these ${-T0} s${top ? ` (${top})` : ""}; dealt ${f.damage_dealt.toLocaleString()}.`);
+    if (f.below_half_hp_s != null) items.push(`Below half health for ${f.below_half_hp_s} s before dying.`);
+    else items.push(`Under half health for the whole ${-T0} s.`);
+    items.push(f.nearest_ally == null ? `Alone: no living teammate.`
+      : f.alone ? `Alone: nearest teammate ${f.nearest_ally.toLocaleString()} units away (more than ${f.alone_distance.toLocaleString()}).`
+      : `Nearest teammate ${f.nearest_ally.toLocaleString()} units away.`);
+    items.push(`${f.enemies_near} ${f.enemies_near === 1 ? "enemy" : "enemies"} within ${f.alone_distance.toLocaleString()} units when you died.`);
+    return items.map(s => `<li>${s}</li>`).join("");
+  }
+
+  function logHtml() {
+    return log.map((g, i) => {
+      const what = g.what ? ` · ${esc(g.what)}${g.n > 1 ? ` ×${g.n}` : ""}` : (g.n > 1 ? ` ×${g.n}` : "");
+      const text = g.kind === "taken" ? `${esc(name(g.s))} hit you${what} · ${g.dmg.toLocaleString()}`
+        : g.kind === "dealt" ? `You hit ${esc(name(g.s))}${what} · ${g.dmg.toLocaleString()}`
+        : g.s === d.tracks.find(t => who[t.slot].role === "you").slot ? `<b>${esc(name(g.killer))} killed you</b>`
+        : `${esc(name(g.s))} died${g.killer != null ? ` (${esc(name(g.killer))})` : ""}`;
+      const mark = g.kind === "kill" ? "var(--text)" : g.kind === "dealt" ? "var(--rp-you)"
+        : g.s == null ? "var(--unknown)" : colorOf(g.s);
+      return `<div data-i="${i}" data-t="${g.t}"><span class="t">${sec(g.t)}</span>
+        <i style="background:${mark};border-radius:${g.kind === "dealt" ? "50%" : "1px"}"></i><span>${text}</span></div>`;
+    }).join("") || `<div>No damage recorded in this window.</div>`;
+  }
+
+  function build() {                         // (re)create the scene for death d
+    svg.innerHTML = "";
+    const pts = [];
+    d.tracks.filter(t => t.involved).forEach(t => t.x.forEach((x, i) => { if (x != null) pts.push(P(x, t.y[i])); }));
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const span = Math.max(W2P(6000), Math.max(...xs) - Math.min(...xs) + 2 * W2P(1500), Math.max(...ys) - Math.min(...ys) + 2 * W2P(1500));
+    vb = { x: cx - span / 2, y: cy - span / 2, s: span };
+    svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${span} ${span}`);
+    const k = span / 100;                     // 1% of the view
+    mk("image", { href: mp.image, x: 0, y: 0, width: S, height: S, style: "filter:invert(0.78) brightness(0.5)" }, svg);   // as the death map, dimmed so icons stand out
+    const defs = mk("defs", {}, svg), trails = mk("g", {}, svg), fx = mk("g", {}, svg), marks = mk("g", {}, svg), heads = mk("g", {}, svg), labels = mk("g", {}, svg);
+    nodes = { k, fx, marks, players: {} };
+    const you = d.tracks.find(t => who[t.slot].role === "you");
+    nodes.cone = mk("path", { fill: "var(--rp-you)", "fill-opacity": 0.22, stroke: "none" }, trails);
+    const youLast = [...d.tracks].sort((a, b) => (who[a.slot].role === "you") - (who[b.slot].role === "you"));
+    youLast.forEach(t => {                    // your icon is drawn last so it stays on top
+      const p = who[t.slot], sz = (p.role === "you" ? 6.5 : 5.2) * k, enemy = p.role === "enemy";
+      const clip = mk("clipPath", { id: `rpc${t.slot}`, clipPathUnits: "userSpaceOnUse" }, defs);
+      enemy ? mk("rect", { x: -sz / 2, y: -sz / 2, width: sz, height: sz, rx: sz * 0.18 }, clip) : mk("circle", { r: sz / 2 }, clip);
+      const trail = mk("polyline", { fill: "none", stroke: colorOf(t.slot), "stroke-width": (p.role === "you" ? 0.55 : 0.4) * k,
+        "stroke-opacity": p.role === "you" ? 0.8 : 0.45, "stroke-linejoin": "round", "stroke-linecap": "round" }, trails);
+      const g = mk("g", { "data-slot": t.slot }, heads);
+      mk("title", {}, g).textContent = `${p.hero} (${p.role === "you" ? "you" : p.role === "ally" ? "teammate" : "enemy"})`;
+      const ring = enemy
+        ? mk("rect", { x: -sz / 2 - 0.5 * k, y: -sz / 2 - 0.5 * k, width: sz + k, height: sz + k, rx: sz * 0.22, fill: colorOf(t.slot), stroke: "var(--panel)", "stroke-width": 0.35 * k }, g)
+        : mk("circle", { r: sz / 2 + 0.5 * k, fill: colorOf(t.slot), stroke: "var(--panel)", "stroke-width": 0.35 * k }, g);
+      mk("rect", { x: -sz / 2, y: -sz / 2, width: sz, height: sz, fill: "#1b1f27", "clip-path": `url(#rpc${t.slot})` }, g);
+      if (p.icon) mk("image", { href: p.icon, x: -sz / 2, y: -sz / 2, width: sz, height: sz, "clip-path": `url(#rpc${t.slot})` }, g);
+      else mk("text", { "text-anchor": "middle", y: 0.35 * sz, style: `font-size:${sz * 0.6}px;fill:var(--text)` }, g).textContent = p.hero.slice(0, 1);
+      mk("rect", { x: -sz / 2, y: sz / 2 + 0.9 * k, width: sz, height: 0.9 * k, rx: 0.3 * k, fill: "#0b0d11" }, g);
+      const hp = mk("rect", { x: -sz / 2, y: sz / 2 + 0.9 * k, width: sz, height: 0.9 * k, rx: 0.3 * k, fill: colorOf(t.slot) }, g);
+      let label = null;
+      if (t.involved) label = mk("text", { "text-anchor": "middle", "data-dy": sz / 2 + 3.6 * k, style: `font-size:${2.3 * k}px;fill:var(--text);paint-order:stroke;stroke:#0c0e12;stroke-width:${0.5 * k}px` }, labels);
+      if (label) label.textContent = p.role === "you" ? "You" : p.hero;
+      const edge = p.role === "ally" ? mk("g", { visibility: "hidden" }, heads) : null;
+      if (edge) { mk("path", { d: `M${2 * k},0 L${-1.4 * k},${1.6 * k} L${-1.4 * k},${-1.6 * k}Z`, fill: "var(--rp-ally)" }, edge);
+                  mk("title", {}, edge).textContent = `${p.hero} (teammate, off screen)`; }
+      nodes.players[t.slot] = { t, g, ring, hp, sz, trail, edge, label };
+    });
+    nodes.you = you;
+    log = groupEvents(d);
+    el.querySelector("#rpFacts").innerHTML = factsHtml(d);
+    el.querySelector("#rpLog").innerHTML = logHtml();
+    el.querySelectorAll("#rpLog [data-t]").forEach(n => n.onclick = () => { setPlaying(false); seek(Math.max(T0, Number(n.dataset.t) - 1)); });
+  }
+
+  function draw() {
+    const f = frameOf(cur), k = nodes.k, pos = {};
+    for (const s in nodes.players) {
+      const n = nodes.players[s], t = n.t, x = at(t.x, f), y = at(t.y, f), hpNow = t.hp[Math.round(f)];
+      const alive = hpNow != null && x != null;
+      if (x != null) pos[s] = P(x, y);
+      // trail: everything up to now, broken where the player was dead
+      const pts = [];
+      for (let i = 0; i <= Math.floor(f); i++) if (t.x[i] != null && t.hp[i] != null) pts.push(P(t.x[i], t.y[i]).map(v => v.toFixed(1)).join(","));
+      if (alive && pos[s]) pts.push(pos[s].map(v => v.toFixed(1)).join(","));
+      n.trail.setAttribute("points", t.in_scene ? pts.join(" ") : "");
+      const show = alive && t.in_scene;
+      n.g.setAttribute("visibility", show ? "visible" : "hidden");
+      if (show) {
+        n.g.setAttribute("transform", `translate(${pos[s][0].toFixed(1)},${pos[s][1].toFixed(1)})`);
+        n.hp.setAttribute("width", (n.sz * hpNow / 100).toFixed(2));
+      }
+      if (n.label) {
+        n.label.setAttribute("visibility", show ? "visible" : "hidden");
+        if (show) { n.label.setAttribute("x", pos[s][0].toFixed(1)); n.label.setAttribute("y", (pos[s][1] + Number(n.label.dataset.dy)).toFixed(1)); }
+      }
+      if (n.edge) {                        // teammate outside the view: arrow on the edge pointing at them
+        const out = alive && pos[s] && (pos[s][0] < vb.x || pos[s][0] > vb.x + vb.s || pos[s][1] < vb.y || pos[s][1] > vb.y + vb.s);
+        n.edge.setAttribute("visibility", out ? "visible" : "hidden");
+        if (out) {
+          const cx = vb.x + vb.s / 2, cy = vb.y + vb.s / 2, dx = pos[s][0] - cx, dy = pos[s][1] - cy;
+          const half = vb.s / 2 - 3 * k, sc = half / Math.max(Math.abs(dx), Math.abs(dy));
+          n.edge.setAttribute("transform", `translate(${cx + dx * sc},${cy + dy * sc}) rotate(${Math.atan2(dy, dx) * 180 / Math.PI})`);
+        }
+      }
+    }
+    // names: push a label down while it overlaps one already placed (your label first)
+    const placed = [];
+    [nodes.you.slot, ...Object.keys(nodes.players).map(Number).filter(s => s !== nodes.you.slot)].forEach(s => {
+      const lab = nodes.players[s].label;
+      if (!lab || lab.getAttribute("visibility") !== "visible") return;
+      const x = Number(lab.getAttribute("x")); let y = Number(lab.getAttribute("y"));
+      const wdt = Math.max(4, lab.textContent.length * 1.3) * k;
+      while (placed.some(q => Math.abs(q.x - x) < (q.w + wdt) / 2 && Math.abs(q.y - y) < 2.5 * k)) y += 2.6 * k;
+      lab.setAttribute("y", y.toFixed(1)); placed.push({ x, y, w: wdt });
+    });
+    // camera direction of the player (yaw in world degrees; the map's y axis points down)
+    const me = nodes.you, myPos = pos[me.slot], yaw = me.yaw[Math.round(f)], meAlive = me.hp[Math.round(f)] != null;
+    if (myPos && yaw != null && meAlive) {
+      const r = 13 * k, a = yaw * Math.PI / 180, half = 40 * Math.PI / 180;
+      const p1 = [myPos[0] + r * Math.cos(a - half), myPos[1] - r * Math.sin(a - half)];
+      const p2 = [myPos[0] + r * Math.cos(a + half), myPos[1] - r * Math.sin(a + half)];
+      nodes.cone.setAttribute("d", `M${myPos[0]},${myPos[1]} L${p1[0]},${p1[1]} A${r},${r} 0 0 0 ${p2[0]},${p2[1]} Z`);
+    } else nodes.cone.setAttribute("d", "");
+    // hits in the last 0.4 s: a line from the attacker (or a ring for non-hero damage); your hits as thin lines
+    let fx = "";
+    const recent = (h) => h.t <= cur && cur - h.t < 0.4;
+    d.taken.filter(recent).forEach(h => {
+      const fade = 1 - (cur - h.t) / 0.4, w = (0.35 + Math.min(1.4, Math.log10(1 + h.dmg) * 0.45)) * k;
+      if (!myPos) return;
+      if (h.from != null && pos[h.from]) fx += `<line x1="${pos[h.from][0]}" y1="${pos[h.from][1]}" x2="${myPos[0]}" y2="${myPos[1]}" stroke="var(--rp-enemy)" stroke-width="${w}" stroke-opacity="${fade}" stroke-linecap="round"/>`;
+      // a ring around you on every hit, so hits from point-blank range still show
+      fx += `<circle cx="${myPos[0]}" cy="${myPos[1]}" r="${(4.2 + 2.5 * (1 - fade)) * k}" fill="none" stroke="${h.from == null ? "var(--unknown)" : "var(--rp-enemy)"}" stroke-width="${w * 0.8}" stroke-opacity="${fade}"/>`;
+    });
+    d.dealt.filter(recent).forEach(h => {
+      if (myPos && pos[h.to]) fx += `<line x1="${myPos[0]}" y1="${myPos[1]}" x2="${pos[h.to][0]}" y2="${pos[h.to][1]}" stroke="var(--rp-you)" stroke-width="${0.3 * k}" stroke-dasharray="${k} ${0.7 * k}" stroke-opacity="${1 - (cur - h.t) / 0.4}"/>`;
+    });
+    nodes.fx.innerHTML = fx;
+    // deaths so far: a cross where each player died
+    let marks = "";
+    d.kills.filter(x => x.t <= cur).forEach(x => {
+      const t = d.tracks.find(tr => tr.slot === x.victim); if (!t) return;
+      const fi = Math.max(0, Math.round(frameOf(x.t)) - 1), px = t.x[fi], py = t.y[fi]; if (px == null) return;
+      const [mx, my] = P(px, py), c = 2.2 * k;
+      marks += `<path d="M${mx - c},${my - c}L${mx + c},${my + c}M${mx + c},${my - c}L${mx - c},${my + c}" stroke="${colorOf(x.victim)}" stroke-width="${0.8 * k}" stroke-linecap="round"><title>${esc(name(x.victim))} died</title></path>`;
+    });
+    nodes.marks.innerHTML = marks;
+    el.querySelector("#rpSlider").value = cur;
+    el.querySelector("#rpTime").textContent = `${sec(cur)} · ${mmss(Math.max(0, d.t + cur))}`;
+    el.querySelectorAll("#rpLog [data-i]").forEach(n => {
+      const g = log[Number(n.dataset.i)], past = g.t <= cur;
+      n.classList.toggle("past", past);
+      n.classList.toggle("now", past && cur - g.end < 0.6);
+    });
+    const logEl = el.querySelector("#rpLog"), lastPast = [...logEl.querySelectorAll(".past")].pop();
+    if (lastPast) {                        // keep the latest event in view
+      const top = lastPast.offsetTop - logEl.offsetTop;
+      if (top < logEl.scrollTop || top > logEl.scrollTop + logEl.clientHeight - 30) logEl.scrollTop = top - logEl.clientHeight / 2;
+    }
+  }
+
+  function seek(t) { cur = Math.max(T0, Math.min(T1, t)); draw(); }
+  function setPlaying(on) {
+    playing = on;
+    el.querySelector("#rpPlay").innerHTML = on ? "&#10074;&#10074; Pause" : "&#9654; Play";
+    cancelAnimationFrame(raf);
+    if (on) { if (cur >= T1) cur = T0; last = performance.now(); raf = requestAnimationFrame(tick); }
+  }
+  function tick(now) {
+    if (!document.body.contains(el)) return;          // report was replaced
+    cur += (now - last) / 1000 * speed; last = now;
+    if (cur >= T1) { cur = T1; draw(); setPlaying(false); return; }
+    draw(); raf = requestAnimationFrame(tick);
+  }
+  function select(i, autoplay) {
+    d = data.deaths[i];
+    el.querySelectorAll("#rpDeaths button").forEach(b => b.classList.toggle("on", Number(b.dataset.i) === i));
+    setPlaying(false); build(); seek(T0);
+    if (autoplay && !reduced) setPlaying(true);
+  }
+  el.querySelectorAll("#rpDeaths button").forEach(b => b.onclick = () => select(Number(b.dataset.i), true));
+  el.querySelector("#rpPlay").onclick = () => setPlaying(!playing);
+  el.querySelector("#rpSlider").oninput = (e) => { setPlaying(false); seek(Number(e.target.value)); };
+  el.querySelector("#rpSpeed").onchange = (e) => { speed = Number(e.target.value); };
+  window.selectReplayDeath = (t) => {             // from the death map: pick the death closest in time
+    let best = 0;
+    data.deaths.forEach((x, i) => { if (Math.abs(x.t - t) < Math.abs(data.deaths[best].t - t)) best = i; });
+    select(best, true); el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  };
+  select(0, false);
 }
 
 function feedbackBar(res, n) {

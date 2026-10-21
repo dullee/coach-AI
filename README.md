@@ -18,7 +18,9 @@ click **Get report**. Replays you downloaded in Deadlock (match history -> Downl
 automatically and add replay-based issues; you can also upload a `.dem`. **My progress** shows recurring issues and stat trends across your
 last 10 matches; each report shows how you did on the previous report's focus, and you can rate
 each priority (useful / not useful, optional comment). Reports also show your souls over time against the median of your
-bracket, and a map of where you died (alone or with your team when a replay is available).
+bracket, and a map of where you died (alone or with your team when a replay is available). With a replay, **Death replays**
+plays back the 15 seconds before each death as a top-down map: where you, your teammates and the enemies were, where your camera
+faced, and every hit you took and dealt. Click a death on the map to jump to its replay.
 Open a report directly with `http://127.0.0.1:8000/?account=<id>&match=<match id>`. Gemini's free tier can take a
 few minutes per report.
 

@@ -258,6 +258,22 @@ def followup_view(account_id: int, match_id: int) -> dict:
         return {"follow_up": follow_up(client, engine, static, bench, account_id, match_id)}
 
 
+@app.get("/api/death_replays")
+def death_replays_view(account_id: int, match_id: int) -> dict:
+    """The seconds before each death, from the stored replay, for the map animation."""
+    from backend.analysis.death_replay import death_replays
+    from backend.analysis.visuals import map_info
+
+    try:
+        out = death_replays(match_id, account_id, get_engine(), load())
+    except LookupError as e:
+        raise HTTPException(404, "No parsed replay for this match yet. Download the replay in Deadlock "
+                                 "(or upload it) and get a report to see death replays.") from e
+    with DeadlockApiClient() as client:
+        out["map"] = map_info(client)
+    return out
+
+
 @app.get("/api/visuals")
 def visuals(account_id: int, match_id: int) -> dict:
     """Chart data for a report: souls over time vs the bracket, and a death map."""

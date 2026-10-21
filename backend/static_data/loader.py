@@ -33,6 +33,7 @@ class Hero:
     playable: bool
     # The hero's four abilities, in order (class names of items with type "ability").
     abilities: tuple[str, ...] = ()
+    minimap_image: str | None = None   # small round icon used on the in-game minimap
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,9 @@ def _hero(h: dict) -> Hero:
     playable = bool(h.get("player_selectable")) and not h.get("disabled")
     slots = h.get("items") or {}
     abilities = tuple(slots[k] for k in sorted(slots) if k.startswith("signature"))
-    return Hero(id=h["id"], name=h["name"], class_name=h["class_name"], playable=playable, abilities=abilities)
+    images = h.get("images") or {}
+    return Hero(id=h["id"], name=h["name"], class_name=h["class_name"], playable=playable, abilities=abilities,
+                minimap_image=images.get("minimap_image_webp") or images.get("minimap_image"))
 
 
 def _item(i: dict) -> Item:
